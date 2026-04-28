@@ -110,32 +110,31 @@ def _ensure_pos_profile(pos_profile):
 
 @frappe.whitelist()
 def get_active_pos_profile(user=None):
-    """Return the active POS profile for the given user."""
+    """Return the active POS profile for the current session user."""
+    # Use current session user if no user specified
     user = user or frappe.session.user
 
-    # Get all POS profiles assigned to the user
-    profile_users = frappe.get_all("POS Profile User",
-        filters={"user": user},
-        fields=["parent", "creation"],
-        order_by="creation desc",
-        limit=1
+    logger.info(f"Getting POS profile for current session user: {user}")
+
+    # Get the most recently assigned POS profile for the session user
+    profile = frappe.db.get_value("POS Profile User",
+        {"user": user},
+        "parent",
+        order_by="creation desc"
     )
 
-    if profile_users:
-        profile = profile_users[0].get("parent")
-        logger.info(f"Found POS profile '{profile}' for user '{user}'")
-    else:
-        # Fall back to default POS profile from settings
-        profile = frappe.db.get_single_value("POS Settings", "pos_profile")
-        if profile:
-            logger.info(f"Using default POS profile '{profile}' for user '{user}'")
-        else:
-            logger.warning(f"No POS profile found for user '{user}'")
+    if profile:
+        logger.info(f"Found POS profile '{profile}' for session user '{user}'")
+        return frappe.get_doc("POS Profile", profile).as_dict()
 
-    if not profile:
-        return None
+    # Fall back to default POS profile from settings
+    profile = frappe.db.get_single_value("POS Settings", "pos_profile")
+    if profile:
+        logger.info(f"Using default POS profile '{profile}' for session user '{user}'")
+        return frappe.get_doc("POS Profile", profile).as_dict()
 
-    return frappe.get_doc("POS Profile", profile).as_dict()
+    logger.warning(f"No POS profile found for session user '{user}'")
+    return None
 
 
 @frappe.whitelist()
