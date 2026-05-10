@@ -123,7 +123,7 @@ def _fetch_bin_qty(warehouse: str, item_codes: Tuple[str, ...]):
         bin_doctype = DocType("Bin")
         return (
             frappe.qb.from_(bin_doctype)
-            .select(bin_doctype.item_code, Sum(bin_doctype.actual_qty).as_("actual_qty"))
+            .select(bin_doctype.item_code, Sum(bin_doctype.projected_qty).as_("projected_qty"))
             .where(bin_doctype.warehouse.isin(warehouses))
             .where(bin_doctype.item_code.isin(item_codes))
             .groupby(bin_doctype.item_code)

@@ -23,13 +23,13 @@ def get_stock_availability(item_code, warehouse):
     bin_doctype = DocType("Bin")
     rows = (
         frappe.qb.from_(bin_doctype)
-        .select(Sum(bin_doctype.actual_qty).as_("actual_qty"))
+        .select(Sum(bin_doctype.projected_qty).as_("projected_qty"))
         .where(bin_doctype.item_code == item_code)
         .where(bin_doctype.warehouse.isin(warehouses))
         .run(as_dict=True)
     )
 
-    return flt(rows[0].actual_qty) if rows else 0.0
+    return flt(rows[0].projected_qty) if rows else 0.0
 
 
 @frappe.whitelist()
@@ -95,14 +95,14 @@ def get_bulk_stock_availability(items):
 
         query = (
             frappe.qb.from_(bin_doctype)
-            .select(bin_doctype.item_code, Sum(bin_doctype.actual_qty).as_("actual_qty"))
+            .select(bin_doctype.item_code, Sum(bin_doctype.projected_qty).as_("projected_qty"))
             .where(bin_doctype.item_code.isin(item_code_list))
             .where(bin_doctype.warehouse.isin(target_warehouses))
             .groupby(bin_doctype.item_code)
         )
 
         rows = query.run(as_dict=True)
-        qty_map = {r.item_code: flt(r.actual_qty) for r in rows}
+        qty_map = {r.item_code: flt(r.projected_qty) for r in rows}
 
         for code in item_codes:
             results[(code, warehouse, "")] = qty_map.get(code, 0.0)

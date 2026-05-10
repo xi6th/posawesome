@@ -64,7 +64,7 @@ export function normalizeRealtimeStockPayload(
 				warehouse: normalizeString(row?.warehouse),
 				company: normalizeString(row?.company),
 				actual_qty: normalizeQty(
-					row?.actual_qty ?? row?.actualQty ?? row?.available_qty,
+					row?.projected_qty ?? row?.actual_qty ?? row?.actualQty ?? row?.available_qty,
 				),
 			};
 		})

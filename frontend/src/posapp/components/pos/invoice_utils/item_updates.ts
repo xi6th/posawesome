@@ -317,12 +317,12 @@ export function _applyItemDetailPayload(
 	item.is_fixed_asset = data.is_fixed_asset;
 	item.allow_alternative_item = data.allow_alternative_item;
 
-	item.actual_qty = data.actual_qty;
-	item.available_qty = data.actual_qty;
+	item.actual_qty = data.projected_qty;
+	item.available_qty = data.projected_qty;
 
 	const hasCode =
 		item && item.item_code !== undefined && item.item_code !== null;
-	const baseActualQty = Number(data.actual_qty);
+	const baseActualQty = Number(data.projected_qty);
 	if (hasCode && Number.isFinite(baseActualQty)) {
 		item._base_actual_qty = baseActualQty;
 		item._base_available_qty = baseActualQty;

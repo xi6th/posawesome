@@ -2461,10 +2461,10 @@ def _collect_branch_location_report(
             f"""
             select
                 warehouse as warehouse,
-                sum(coalesce(actual_qty, 0)) as stock_qty,
+                sum(coalesce(projected_qty, 0)) as stock_qty,
                 sum(
                     case
-                        when coalesce(actual_qty, 0) <= %s then 1
+                        when coalesce(projected_qty, 0) <= %s then 1
                         else 0
                     end
                 ) as low_stock_count
@@ -3746,7 +3746,7 @@ def _collect_low_stock_items(warehouses: list[str], threshold: int, limit: int) 
     if not frappe.db.exists("DocType", "Bin"):
         return []
 
-    if not frappe.db.has_column("Bin", "actual_qty"):
+    if not frappe.db.has_column("Bin", "projected_qty"):
         return []
 
     warehouse_filter, warehouse_params = _build_in_filter("bin.warehouse", warehouses)
@@ -3759,15 +3759,15 @@ def _collect_low_stock_items(warehouses: list[str], threshold: int, limit: int) 
             bin.item_code as item_code,
             item.item_name as item_name,
             item.stock_uom as stock_uom,
-            bin.actual_qty as actual_qty,
+            bin.projected_qty as projected_qty,
             bin.warehouse as warehouse
         from `tabBin` bin
         inner join `tabItem` item on item.name = bin.item_code
         where ifnull(item.disabled, 0) = 0
           and ifnull(item.is_stock_item, 0) = 1
           {warehouse_filter}
-          and ifnull(bin.actual_qty, 0) <= %s
-        order by bin.actual_qty asc, bin.item_code asc
+          and ifnull(bin.projected_qty, 0) <= %s
+        order by bin.projected_qty asc, bin.item_code asc
         limit %s
         """,
         (*warehouse_params, threshold, limit),
@@ -3805,7 +3805,7 @@ def _collect_inventory_status_report(
 
     if not warehouses or not frappe.db.exists("DocType", "Bin"):
         return report
-    if not frappe.db.has_column("Bin", "actual_qty"):
+    if not frappe.db.has_column("Bin", "projected_qty"):
         return report
 
     warehouse_filter, warehouse_params = _build_in_filter("bin.warehouse", warehouses)
@@ -3818,7 +3818,7 @@ def _collect_inventory_status_report(
             bin.item_code as item_code,
             max(item.item_name) as item_name,
             max(item.stock_uom) as stock_uom,
-            sum(coalesce(bin.actual_qty, 0)) as actual_qty
+            sum(coalesce(bin.projected_qty, 0)) as projected_qty
         from `tabBin` bin
         inner join `tabItem` item on item.name = bin.item_code
         where ifnull(item.disabled, 0) = 0
@@ -3855,50 +3855,50 @@ def _collect_inventory_status_report(
             continue
         item_name = cstr(row.get("item_name") or item_code)
         stock_uom = cstr(row.get("stock_uom"))
-        actual_qty = flt(row.get("actual_qty"))
-        total_stock_qty += actual_qty
+        projected_qty = flt(row.get("projected_qty"))
+        total_stock_qty += projected_qty
 
         sales_row = sales_by_item.get(item_code, {})
         sold_qty = flt(sales_row.get("sold_qty"))
         sales_amount = flt(sales_row.get("sales_amount"))
         avg_daily_sales = flt(sold_qty / period_days) if period_days > 0 else 0.0
-        stock_cover_days = flt(actual_qty / avg_daily_sales) if avg_daily_sales > 0 and actual_qty > 0 else None
+        stock_cover_days = flt(projected_qty / avg_daily_sales) if avg_daily_sales > 0 and projected_qty > 0 else None
 
         base_entry = {
             "item_code": item_code,
             "item_name": item_name,
             "stock_uom": stock_uom,
-            "actual_qty": actual_qty,
+            "projected_qty": projected_qty,
             "sold_qty": sold_qty,
             "sales_amount": sales_amount,
             "stock_cover_days": stock_cover_days,
         }
 
-        if actual_qty < 0:
+        if projected_qty < 0:
             negative_stock_items.append(base_entry)
-        elif abs(actual_qty) <= 0.00001:
+        elif abs(projected_qty) <= 0.00001:
             out_of_stock_items.append(base_entry)
-        elif actual_qty <= threshold:
+        elif projected_qty <= threshold:
             low_stock_items.append(base_entry)
 
-        if actual_qty > 0:
+        if projected_qty > 0:
             if abs(sold_qty) <= 0.00001:
                 dead_stock_items.append(base_entry)
             elif stock_cover_days is not None and stock_cover_days >= 45:
                 slow_moving_items.append(base_entry)
 
-    low_stock_items.sort(key=lambda row: (flt(row.get("actual_qty")), cstr(row.get("item_code"))))
+    low_stock_items.sort(key=lambda row: (flt(row.get("projected_qty")), cstr(row.get("item_code"))))
     out_of_stock_items.sort(key=lambda row: cstr(row.get("item_code")))
-    negative_stock_items.sort(key=lambda row: (flt(row.get("actual_qty")), cstr(row.get("item_code"))))
+    negative_stock_items.sort(key=lambda row: (flt(row.get("projected_qty")), cstr(row.get("item_code"))))
     slow_moving_items.sort(
         key=lambda row: (
             flt(row.get("stock_cover_days") or 0),
-            flt(row.get("actual_qty")),
+            flt(row.get("projected_qty")),
         ),
         reverse=True,
     )
     dead_stock_items.sort(
-        key=lambda row: (flt(row.get("actual_qty")), cstr(row.get("item_code"))),
+        key=lambda row: (flt(row.get("projected_qty")), cstr(row.get("item_code"))),
         reverse=True,
     )
 
