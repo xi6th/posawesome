@@ -136,7 +136,7 @@ export function useCartValidation() {
 			const testItem = {
 				item_code: item.item_code,
 				item_name: item.item_name,
-				warehouse: posProfile?.warehouse || item.warehouse,
+				warehouse: item.warehouse || posProfile?.warehouse,
 				qty: Math.abs(requestedQty),
 				stock_qty: Math.abs(requestedQty),
 				actual_qty: item.actual_qty,

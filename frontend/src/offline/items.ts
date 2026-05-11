@@ -136,15 +136,30 @@ export async function clearPriceListCache(priceList: string | null = null) {
 }
 
 // Item details caching functions
+function buildItemDetailsCacheKey(
+	profileName: string,
+	priceList: string,
+	warehouse?: string | null,
+) {
+	const normalizedProfile = String(profileName || "").trim();
+	const normalizedPriceList = String(priceList || "").trim();
+	const normalizedWarehouse = String(warehouse || "").trim();
+	return normalizedWarehouse
+		? `${normalizedProfile}::${normalizedWarehouse}::${normalizedPriceList}`
+		: `${normalizedProfile}::${normalizedPriceList}`;
+}
+
 export function saveItemDetailsCache(
 	profileName: string,
 	priceList: string,
 	items: AnyRecord[],
+	warehouse: string | null = null,
 ) {
 	try {
 		const cache = memory.item_details_cache || {};
-		const profileCache = cache[profileName] || {};
-		const priceCache = profileCache[priceList] || {};
+		const profileKey = buildItemDetailsCacheKey(profileName, priceList, warehouse);
+		const profileCache = cache[profileKey] || {};
+		const priceCache = profileCache.items || {};
 
 		let cleanItems;
 		try {
@@ -152,6 +167,7 @@ export function saveItemDetailsCache(
 			cleanItems = items.map((it) => ({
 				item_code: it.item_code,
 				actual_qty: it.actual_qty,
+				warehouse: it.warehouse,
 				has_batch_no: it.has_batch_no,
 				has_serial_no: it.has_serial_no,
 				item_uoms: it.item_uoms,
@@ -173,8 +189,8 @@ export function saveItemDetailsCache(
 				timestamp: Date.now(),
 			};
 		});
-		profileCache[priceList] = priceCache;
-		cache[profileName] = profileCache;
+		profileCache.items = priceCache;
+		cache[profileKey] = profileCache;
 		memory.item_details_cache = cache;
 		persist("item_details_cache", memory.item_details_cache);
 	} catch (e) {
@@ -187,10 +203,12 @@ export async function getCachedItemDetails(
 	priceList: string,
 	itemCodes: string[],
 	ttl = 15 * 60 * 1000,
+	warehouse: string | null = null,
 ) {
 	try {
 		const cache = memory.item_details_cache || {};
-		const priceCache = cache[profileName]?.[priceList] || {};
+		const profileKey = buildItemDetailsCacheKey(profileName, priceList, warehouse);
+		const priceCache = cache[profileKey]?.items || {};
 		const now = Date.now();
 		const cached: AnyRecord[] = [];
 		const missing: string[] = [];

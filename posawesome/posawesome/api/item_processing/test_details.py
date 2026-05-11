@@ -41,11 +41,55 @@ def _install_dependency_stubs():
     item_fetchers_module = types.ModuleType("posawesome.posawesome.api.item_fetchers")
     item_fetchers_module.ItemDetailAggregator = object
     item_fetchers_module.get_batches = lambda *args, **kwargs: []
+    item_fetchers_module.get_warehouse_bin_qty = lambda *args, **kwargs: []
+    def _select_stock_warehouse(preferred_warehouse, warehouse_qty_map):
+        preferred = (preferred_warehouse or "").strip()
+        if preferred and preferred in warehouse_qty_map and (warehouse_qty_map.get(preferred) or 0) > 0:
+            return preferred, warehouse_qty_map.get(preferred) or 0
+
+        positive = [
+            (warehouse, qty)
+            for warehouse, qty in warehouse_qty_map.items()
+            if (qty or 0) > 0
+        ]
+        if positive:
+            positive.sort(key=lambda row: (-row[1], row[0]))
+            return positive[0]
+
+        if preferred and preferred in warehouse_qty_map:
+            return preferred, warehouse_qty_map.get(preferred) or 0
+
+        if warehouse_qty_map:
+            return max(warehouse_qty_map.items(), key=lambda row: row[1] or 0)
+
+        return preferred, 0
+
+    item_fetchers_module._select_stock_warehouse = _select_stock_warehouse
     sys.modules["posawesome.posawesome.api.item_fetchers"] = item_fetchers_module
 
     stock_module = types.ModuleType("posawesome.posawesome.api.item_processing.stock")
     stock_module.get_stock_availability = lambda *args, **kwargs: 0
     sys.modules["posawesome.posawesome.api.item_processing.stock"] = stock_module
+
+    erpnext_module = types.ModuleType("erpnext")
+    erpnext_module.__path__ = []
+    sys.modules["erpnext"] = erpnext_module
+
+    erpnext_stock_package = types.ModuleType("erpnext.stock")
+    erpnext_stock_package.__path__ = []
+    sys.modules["erpnext.stock"] = erpnext_stock_package
+
+    erpnext_stock_doctype_package = types.ModuleType("erpnext.stock.doctype")
+    erpnext_stock_doctype_package.__path__ = []
+    sys.modules["erpnext.stock.doctype"] = erpnext_stock_doctype_package
+
+    erpnext_stock_batch_package = types.ModuleType("erpnext.stock.doctype.batch")
+    erpnext_stock_batch_package.__path__ = []
+    sys.modules["erpnext.stock.doctype.batch"] = erpnext_stock_batch_package
+
+    batch_module = types.ModuleType("erpnext.stock.doctype.batch.batch")
+    batch_module.get_batch_qty = lambda *args, **kwargs: 0
+    sys.modules["erpnext.stock.doctype.batch.batch"] = batch_module
 
     utils_module = types.ModuleType("posawesome.posawesome.api.utils")
     utils_module._ensure_pos_profile = lambda pos_profile: (pos_profile, pos_profile)
@@ -165,6 +209,84 @@ class TestGetItemDetailNormalization(unittest.TestCase):
 
         self.assertIs(captured["item"], item)
         self.assertIsInstance(captured["doc"], self.frappe._dict)
+
+    def test_uses_selected_batch_qty_when_batch_is_selected(self):
+        with patch.object(self.details, "get_stock_availability", return_value=0), patch.object(
+            self.details, "get_batches", return_value=[]
+        ), patch.object(self.details.frappe, "get_all", return_value=[]), patch.object(
+            self.details.frappe.db,
+            "get_value",
+            side_effect=lambda doctype, name, field, as_dict=False: (
+                {"max_discount": 0, "allow_negative_stock": 0, "stock_uom": "Nos"}
+                if doctype == "Item" and as_dict
+                else "USD"
+            ),
+        ), patch.dict(
+            sys.modules,
+            {
+                "erpnext.stock.get_item_details": types.SimpleNamespace(
+                    get_item_details=lambda *args, **kwargs: {}
+                ),
+            },
+        ), patch.object(self.details, "get_batch_qty", return_value=4.5):
+            result = self.details.get_item_detail(
+                {
+                    "item_code": "ITEM-003",
+                    "is_stock_item": 1,
+                    "has_batch_no": 1,
+                    "batch_no": "BATCH-001",
+                },
+                warehouse="Stores - TC",
+                company="Test Company",
+            )
+
+        self.assertEqual(result["actual_qty"], 4.5)
+
+    def test_falls_back_to_a_warehouse_with_stock_when_preferred_has_none(self):
+        captured = {}
+
+        def fake_get_stock_availability(item_code, warehouse):
+            captured["warehouse"] = warehouse
+            return {"Warehouse B": 13, "Warehouse A": 0}.get(warehouse, 0)
+
+        with patch.object(self.details, "get_stock_availability", side_effect=fake_get_stock_availability), patch.object(
+            self.details,
+            "get_warehouse_bin_qty",
+            return_value=[
+                {"item_code": "ITEM-004", "warehouse": "Warehouse A", "actual_qty": 0},
+                {"item_code": "ITEM-004", "warehouse": "Warehouse B", "actual_qty": 13},
+            ],
+        ), patch.object(self.details, "get_batches", return_value=[]), patch.object(
+            self.details.frappe, "get_all", return_value=[]
+        ), patch.object(
+            self.details.frappe.db,
+            "get_value",
+            side_effect=lambda doctype, name, field, as_dict=False: (
+                {"max_discount": 0, "allow_negative_stock": 0, "stock_uom": "Nos"}
+                if doctype == "Item" and as_dict
+                else "USD"
+            ),
+        ), patch.dict(
+            sys.modules,
+            {
+                "erpnext.stock.get_item_details": types.SimpleNamespace(
+                    get_item_details=lambda *args, **kwargs: {}
+                ),
+            },
+        ):
+            result = self.details.get_item_detail(
+                {
+                    "item_code": "ITEM-004",
+                    "item_name": "Test Item",
+                    "is_stock_item": 1,
+                },
+                warehouse="Warehouse A",
+                company="Test Company",
+            )
+
+        self.assertEqual(captured["warehouse"], "Warehouse B")
+        self.assertEqual(result["warehouse"], "Warehouse B")
+        self.assertEqual(result["actual_qty"], 13)
 
 
 if __name__ == "__main__":

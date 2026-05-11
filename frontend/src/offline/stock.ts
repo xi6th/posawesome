@@ -3,6 +3,27 @@ import { memory, persist } from "./db";
 
 type AnyRecord = Record<string, any>;
 
+function buildStockCacheKey(itemCode: string, warehouse?: string | null) {
+	const normalizedItemCode = String(itemCode || "").trim();
+	const normalizedWarehouse = String(warehouse || "").trim();
+	return normalizedWarehouse
+		? `${normalizedItemCode}::${normalizedWarehouse}`
+		: normalizedItemCode;
+}
+
+function getStockCacheEntry(
+	stockCache: AnyRecord,
+	itemCode: string,
+	warehouse?: string | null,
+) {
+	const compositeKey = buildStockCacheKey(itemCode, warehouse);
+	if (compositeKey && stockCache[compositeKey]) {
+		return stockCache[compositeKey];
+	}
+	const legacyKey = buildStockCacheKey(itemCode);
+	return stockCache[legacyKey] || null;
+}
+
 export async function fetchItemStockQuantities(
 	items: AnyRecord[],
 	pos_profile: AnyRecord,
@@ -52,7 +73,14 @@ export async function initializeStockCache(
 	try {
 		const existingCache = memory.local_stock_cache || {};
 		const missingItems = Array.isArray(items)
-			? items.filter((it) => !existingCache[it.item_code])
+			? items.filter((it) => {
+					if (!it || !it.item_code) return true;
+					return !getStockCacheEntry(
+						existingCache,
+						it.item_code,
+						it.warehouse,
+					);
+				})
 			: [];
 
 		if (missingItems.length === 0) {
@@ -82,7 +110,7 @@ export async function initializeStockCache(
 		if (updatedItems && updatedItems.length > 0) {
 			updatedItems.forEach((item) => {
 				if (item.actual_qty !== undefined) {
-					existingCache[item.item_code] = {
+					existingCache[buildStockCacheKey(item.item_code, item.warehouse)] = {
 						actual_qty: item.actual_qty,
 						last_updated: new Date().toISOString(),
 					};
@@ -123,18 +151,24 @@ export function updateLocalStock(items: AnyRecord[]) {
 		const stockCache = memory.local_stock_cache || {};
 
 		items.forEach((item) => {
-			const key = item.item_code;
+			const key = buildStockCacheKey(item.item_code, item.warehouse);
+			const legacyKey = buildStockCacheKey(item.item_code);
+			const entry = stockCache[key] || stockCache[legacyKey];
 
 			// Only update if the item already exists in cache
 			// Don't create new entries without knowing the actual stock
-			if (stockCache[key]) {
+			if (entry) {
 				// Reduce quantity by sold amount
 				const soldQty = Math.abs(item.qty || 0);
-				stockCache[key].actual_qty = Math.max(
+				entry.actual_qty = Math.max(
 					0,
-					stockCache[key].actual_qty - soldQty,
+					entry.actual_qty - soldQty,
 				);
-				stockCache[key].last_updated = new Date().toISOString();
+				entry.last_updated = new Date().toISOString();
+				stockCache[key] = entry;
+				if (key !== legacyKey && stockCache[legacyKey]) {
+					delete stockCache[legacyKey];
+				}
 			}
 			// If item doesn't exist in cache, we don't create it
 			// because we don't know the actual stock quantity
@@ -147,10 +181,11 @@ export function updateLocalStock(items: AnyRecord[]) {
 	}
 }
 
-export function getLocalStock(itemCode: string) {
+export function getLocalStock(itemCode: string, warehouse?: string | null) {
 	try {
 		const stockCache = memory.local_stock_cache || {};
-		return stockCache[itemCode]?.actual_qty || null;
+		const entry = getStockCacheEntry(stockCache, itemCode, warehouse);
+		return entry?.actual_qty || null;
 	} catch {
 		return null;
 	}
@@ -164,7 +199,7 @@ export function updateLocalStockCache(items: AnyRecord[]) {
 			if (!item || !item.item_code) return;
 
 			if (item.actual_qty !== undefined) {
-				stockCache[item.item_code] = {
+				stockCache[buildStockCacheKey(item.item_code, item.warehouse)] = {
 					actual_qty: item.actual_qty,
 					last_updated: new Date().toISOString(),
 				};
@@ -198,7 +233,11 @@ export function removeLocalStockEntries(itemCodes: string[]) {
 		}
 		const stockCache = memory.local_stock_cache || {};
 		normalizedCodes.forEach((code) => {
-			delete stockCache[code];
+			Object.keys(stockCache).forEach((key) => {
+				if (key === code || key.startsWith(`${code}::`)) {
+					delete stockCache[key];
+				}
+			});
 		});
 		memory.local_stock_cache = stockCache;
 		persist("local_stock_cache");
@@ -215,7 +254,11 @@ export function updateLocalStockWithActualQuantities(
 		const stockCache = memory.local_stock_cache || {};
 
 		invoiceItems.forEach((invoiceItem) => {
-			const key = invoiceItem.item_code;
+			const key = buildStockCacheKey(
+				invoiceItem.item_code,
+				invoiceItem.warehouse,
+			);
+			const legacyKey = buildStockCacheKey(invoiceItem.item_code);
 
 			// Find corresponding server item with actual quantity
 			const serverItem = serverItems.find(
@@ -223,24 +266,28 @@ export function updateLocalStockWithActualQuantities(
 			);
 
 			if (serverItem && serverItem.actual_qty !== undefined) {
+				const cacheKey = stockCache[key] ? key : legacyKey;
 				// Initialize or update cache with actual server quantity
-				if (!stockCache[key]) {
-					stockCache[key] = {
+				if (!stockCache[cacheKey]) {
+					stockCache[cacheKey] = {
 						actual_qty: serverItem.actual_qty,
 						last_updated: new Date().toISOString(),
 					};
 				} else {
 					// Update with server quantity if it's more recent
-					stockCache[key].actual_qty = serverItem.actual_qty;
-					stockCache[key].last_updated = new Date().toISOString();
+					stockCache[cacheKey].actual_qty = serverItem.actual_qty;
+					stockCache[cacheKey].last_updated = new Date().toISOString();
 				}
 
 				// Now reduce quantity by sold amount
 				const soldQty = Math.abs(invoiceItem.qty || 0);
-				stockCache[key].actual_qty = Math.max(
+				stockCache[cacheKey].actual_qty = Math.max(
 					0,
-					stockCache[key].actual_qty - soldQty,
+					stockCache[cacheKey].actual_qty - soldQty,
 				);
+				if (cacheKey !== key && stockCache[key]) {
+					delete stockCache[key];
+				}
 			}
 		});
 

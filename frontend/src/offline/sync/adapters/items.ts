@@ -131,7 +131,12 @@ export async function syncItemsResource(
 	if (changedItems.length) {
 		await saveItemsBulk(changedItems, storageScope);
 		if (args.priceList) {
-			saveItemDetailsCache(args.posProfile.name, args.priceList, changedItems);
+			saveItemDetailsCache(
+				args.posProfile.name,
+				args.priceList,
+				changedItems,
+				args.posProfile.warehouse,
+			);
 			mergeCachedPriceListItems(args.priceList, changedItems);
 		}
 	}
@@ -143,6 +148,7 @@ export async function syncItemsResource(
 			args.posProfile.name,
 			deletedItemCodes,
 			args.priceList || null,
+			args.posProfile.warehouse,
 		);
 		removeCachedPriceListItems(
 			deletedItemCodes,

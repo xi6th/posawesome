@@ -53,15 +53,20 @@
 				</div>
 				<div class="card-item-stock">
 					<v-icon size="small" class="stock-icon"> mdi-package-variant </v-icon>
-					<span
-						class="stock-amount"
-						:class="{
-							'negative-number': isNegative(item.actual_qty),
-						}"
-					>
-						{{ formattedActualQty }}
-					</span>
-					<span class="stock-uom">{{ item.stock_uom || "" }}</span>
+					<div class="stock-meta">
+						<div
+							class="stock-amount-row"
+							:class="{
+								'negative-number': isNegative(item.actual_qty),
+							}"
+						>
+							<span class="stock-amount">
+								{{ formattedActualQty }}
+							</span>
+							<span class="stock-uom">{{ item.stock_uom || "" }}</span>
+						</div>
+						<span class="stock-warehouse">{{ warehouseLabel }}</span>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -72,6 +77,8 @@
 import { computed } from "vue";
 import placeholderImage from "../placeholder-image.png";
 import ItemRateInfoMenu from "./ItemRateInfoMenu.vue";
+
+const __ = window.__ || ((value) => value);
 
 const props = defineProps({
 	item: { type: Object, required: true },
@@ -122,6 +129,10 @@ const primaryPrecision = computed(() => {
 const rateInfo = computed(() => props.getItemRateInfo(props.item));
 
 const secondaryCurrency = computed(() => props.selectedCurrency);
+
+const warehouseLabel = computed(() => {
+	return props.item?.warehouse || props.posProfile?.warehouse || __("No warehouse");
+});
 
 const showSecondaryPrice = computed(() => {
 	return (
@@ -301,6 +312,20 @@ const onDragEnd = (event) => {
 	white-space: nowrap;
 }
 
+.stock-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.stock-amount-row {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
 .stock-amount {
 	font-weight: 600;
 }
@@ -312,6 +337,16 @@ const onDragEnd = (event) => {
 .stock-uom {
 	font-size: 0.7rem;
 	text-transform: uppercase;
+}
+
+.stock-warehouse {
+	font-size: 0.7rem;
+	font-weight: 600;
+	color: var(--pos-text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 100%;
 }
 
 @media (max-width: 768px) {

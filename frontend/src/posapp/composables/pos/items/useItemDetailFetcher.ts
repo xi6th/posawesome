@@ -103,6 +103,7 @@ export function useItemDetailFetcher() {
 
 		return [
 			ctx.pos_profile?.name || "",
+			ctx.pos_profile?.warehouse || "",
 			effectivePriceList,
 			itemCodes.join(","),
 		].join(":");
@@ -238,6 +239,8 @@ export function useItemDetailFetcher() {
 				ctx.pos_profile?.name,
 				ctx.active_price_list,
 				itemCodes,
+				undefined,
+				ctx.pos_profile?.warehouse,
 			);
 			const missingCodes = new Set(cacheResult?.missing || []);
 			const updates: Array<{ item: any; upd: any }> = [];
@@ -246,6 +249,9 @@ export function useItemDetailFetcher() {
 				const item = displayedItemMap.get(det.item_code);
 				if (item) {
 					const upd: any = { actual_qty: det.actual_qty };
+					if (det.warehouse) {
+						upd.warehouse = det.warehouse;
+					}
 					if (det.item_uoms && det.item_uoms.length > 0) {
 						upd.item_uoms = det.item_uoms;
 						saveItemUOMs(item.item_code, det.item_uoms);
@@ -285,6 +291,9 @@ export function useItemDetailFetcher() {
 				const item = displayedItemMap.get(updItem.item_code);
 				if (item) {
 					const upd: any = { actual_qty: updItem.actual_qty };
+					if (updItem.warehouse) {
+						upd.warehouse = updItem.warehouse;
+					}
 					if (updItem.item_uoms && updItem.item_uoms.length > 0) {
 						upd.item_uoms = updItem.item_uoms;
 						saveItemUOMs(item.item_code, updItem.item_uoms);
@@ -322,6 +331,7 @@ export function useItemDetailFetcher() {
 				ctx.pos_profile?.name,
 				ctx.active_price_list,
 				details,
+				ctx.pos_profile?.warehouse,
 			);
 
 			if (
@@ -375,6 +385,7 @@ export function useItemDetailFetcher() {
 			effectivePriceList,
 			itemCodes,
 			forceRefresh ? 0 : undefined,
+			ctx.pos_profile?.warehouse,
 		);
 		const missingCodes = new Set(cacheResult?.missing || []);
 
@@ -389,6 +400,7 @@ export function useItemDetailFetcher() {
 					actual_qty: det.actual_qty,
 					has_batch_no: det.has_batch_no,
 					has_serial_no: det.has_serial_no,
+					warehouse: det.warehouse || item.warehouse,
 				});
 				if (det.item_uoms && det.item_uoms.length > 0) {
 					item.item_uoms = det.item_uoms;
@@ -435,7 +447,10 @@ export function useItemDetailFetcher() {
 
 		let allCached = cacheResult.missing.length === 0;
 		items.forEach((item) => {
-			const localQty = getLocalStock(item.item_code);
+			const localQty = getLocalStock(
+				item.item_code,
+				item.warehouse || ctx.pos_profile?.warehouse,
+			);
 			if (localQty !== null) {
 				item.actual_qty = localQty;
 				if (ctx.itemAvailability)
@@ -522,14 +537,15 @@ export function useItemDetailFetcher() {
 
 						updatedItems.push({
 							item: item,
-							updates: {
-								actual_qty: updated_item.actual_qty,
-								has_batch_no: updated_item.has_batch_no,
-								has_serial_no: updated_item.has_serial_no,
-								batch_no_data: Array.isArray(
-									updated_item.batch_no_data,
-								)
-									? updated_item.batch_no_data
+						updates: {
+							actual_qty: updated_item.actual_qty,
+							has_batch_no: updated_item.has_batch_no,
+							has_serial_no: updated_item.has_serial_no,
+							warehouse: updated_item.warehouse || item.warehouse,
+							batch_no_data: Array.isArray(
+								updated_item.batch_no_data,
+							)
+								? updated_item.batch_no_data
 									: item.batch_no_data,
 								serial_no_data: Array.isArray(
 									updated_item.serial_no_data,
@@ -622,6 +638,7 @@ export function useItemDetailFetcher() {
 					ctx.pos_profile?.name,
 					effectivePriceList,
 					details,
+					ctx.pos_profile?.warehouse,
 				);
 
 				if (
@@ -647,7 +664,10 @@ export function useItemDetailFetcher() {
 			if (err?.name !== "AbortError") {
 				console.error("Error fetching item details:", err);
 				items.forEach((item) => {
-					const localQty = getLocalStock(item.item_code);
+					const localQty = getLocalStock(
+						item.item_code,
+						item.warehouse || ctx.pos_profile?.warehouse,
+					);
 					if (localQty !== null) {
 						item.actual_qty = localQty;
 						if (ctx.itemAvailability)

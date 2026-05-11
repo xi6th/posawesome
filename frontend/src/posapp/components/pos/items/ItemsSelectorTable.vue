@@ -96,9 +96,15 @@
 				</div>
 			</template>
 			<template v-slot:item.actual_qty="{ item }">
-				<span class="golden--text" :class="{ 'negative-number': isNegative(item.actual_qty) }">
-					{{ formatActualQty(item.actual_qty) }}
-				</span>
+				<div class="qty-cell">
+					<span
+						class="golden--text"
+						:class="{ 'negative-number': isNegative(item.actual_qty) }"
+					>
+						{{ formatActualQty(item.actual_qty) }}
+					</span>
+					<span class="qty-warehouse">{{ warehouseLabel(item) }}</span>
+				</div>
 			</template>
 		</v-data-table-virtual>
 	</div>
@@ -107,6 +113,8 @@
 <script setup>
 import { ref } from "vue";
 import ItemRateInfoMenu from "./ItemRateInfoMenu.vue";
+
+const __ = window.__ || ((value) => value);
 
 const props = defineProps({
 	displayedItems: { type: Array, default: () => [] },
@@ -147,6 +155,10 @@ const formatActualQty = (value) => {
 		return props.formatNumber(Math.round(numericQty), 0);
 	}
 	return props.formatNumber(numericQty, 4);
+};
+
+const warehouseLabel = (item) => {
+	return item?.warehouse || props.posProfile?.warehouse || __("No warehouse");
 };
 
 const tableRef = ref(null);
@@ -195,6 +207,23 @@ defineExpose({ scrollToIndex, getTableElement, tableRef });
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+}
+
+.qty-cell {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	line-height: 1.1;
+}
+
+.qty-warehouse {
+	font-size: 0.7rem;
+	font-weight: 600;
+	color: var(--pos-text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 100%;
 }
 
 .sleek-data-table {

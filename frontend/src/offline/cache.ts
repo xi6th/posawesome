@@ -667,16 +667,31 @@ export function removeCachedPriceListItems(
 	}
 }
 
-export function saveItemDetailsCache(profileName, priceList, items) {
+function buildItemDetailsCacheKey(
+	profileName: string,
+	priceList: string,
+	warehouse?: string | null,
+) {
+	const normalizedProfile = String(profileName || "").trim();
+	const normalizedPriceList = String(priceList || "").trim();
+	const normalizedWarehouse = String(warehouse || "").trim();
+	return normalizedWarehouse
+		? `${normalizedProfile}::${normalizedWarehouse}::${normalizedPriceList}`
+		: `${normalizedProfile}::${normalizedPriceList}`;
+}
+
+export function saveItemDetailsCache(profileName, priceList, items, warehouse = null) {
 	try {
 		const cache = memory.item_details_cache || {};
-		const profileCache = cache[profileName] || {};
-		const priceCache = profileCache[priceList] || {};
+		const profileKey = buildItemDetailsCacheKey(profileName, priceList, warehouse);
+		const profileCache = cache[profileKey] || {};
+		const priceCache = profileCache["items"] || {};
 		let cleanItems;
 		try {
 			cleanItems = items.map((it) => ({
 				item_code: it.item_code,
 				actual_qty: it.actual_qty,
+				warehouse: it.warehouse,
 				serial_no_data: it.serial_no_data,
 				batch_no_data: it.batch_no_data,
 				has_batch_no: it.has_batch_no,
@@ -696,8 +711,8 @@ export function saveItemDetailsCache(profileName, priceList, items) {
 				timestamp: Date.now(),
 			};
 		});
-		profileCache[priceList] = priceCache;
-		cache[profileName] = profileCache;
+		profileCache["items"] = priceCache;
+		cache[profileKey] = profileCache;
 		memory.item_details_cache = cache;
 		persist("item_details_cache");
 	} catch (e) {
@@ -726,10 +741,12 @@ export async function getCachedItemDetails(
 	priceList: string,
 	itemCodes: string[],
 	ttl = 15 * 60 * 1000,
+	warehouse: string | null = null,
 ) {
 	try {
 		const cache = memory.item_details_cache || {};
-		const priceCache = cache[profileName]?.[priceList] || {};
+		const profileKey = buildItemDetailsCacheKey(profileName, priceList, warehouse);
+		const priceCache = cache[profileKey]?.items || {};
 		const now = Date.now();
 		const cached: any[] = [];
 		const missing: string[] = [];
@@ -777,6 +794,7 @@ export function removeItemDetailsCacheEntries(
 	profileName,
 	itemCodes: string[] = [],
 	priceList: string | null = null,
+	warehouse: string | null = null,
 ) {
 	try {
 		const normalizedCodes = new Set(
@@ -790,7 +808,7 @@ export function removeItemDetailsCacheEntries(
 
 		const cache = memory.item_details_cache || {};
 		const targetProfiles = profileName
-			? [profileName]
+			? [buildItemDetailsCacheKey(profileName, priceList || "", warehouse)]
 			: Object.keys(cache || {});
 
 		targetProfiles.forEach((targetProfile) => {
@@ -798,19 +816,12 @@ export function removeItemDetailsCacheEntries(
 			if (!profileCache || typeof profileCache !== "object") {
 				return;
 			}
-			const targetPriceLists = priceList
-				? [priceList]
-				: Object.keys(profileCache);
-
-			targetPriceLists.forEach((targetPriceList) => {
-				const priceCache = profileCache[targetPriceList];
-				if (!priceCache || typeof priceCache !== "object") {
-					return;
-				}
-				normalizedCodes.forEach((code) => {
-					delete priceCache[code];
-				});
-				profileCache[targetPriceList] = priceCache;
+			const priceCache = profileCache.items;
+			if (!priceCache || typeof priceCache !== "object") {
+				return;
+			}
+			normalizedCodes.forEach((code) => {
+				delete priceCache[code];
 			});
 
 			cache[targetProfile] = profileCache;

@@ -208,11 +208,7 @@ def get_delta_items(
         merged.update(item)
         merged.update(detail)
 
-        if (
-            profile.get("posa_display_items_in_stock")
-            and (not merged.get("actual_qty") or merged.get("actual_qty") < 0)
-            and not merged.get("has_variants")
-        ):
+        if (not merged.get("actual_qty") or merged.get("actual_qty") < 0) and not merged.get("has_variants"):
             continue
 
         base_items.append(merged)

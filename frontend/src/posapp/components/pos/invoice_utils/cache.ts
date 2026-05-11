@@ -58,10 +58,14 @@ export function clearItemDetailCache(context: InvoiceContext) {
 export function _getStockCacheKey(context: InvoiceContext, item: any) {
     const code = item?.item_code;
     const warehouse = item?.warehouse || context.pos_profile?.warehouse;
+    const batchNo =
+        item?.batch_no !== undefined && item?.batch_no !== null
+            ? String(item.batch_no).trim()
+            : "";
     if (!code || !warehouse) {
         return null;
     }
-    return `${code}::${warehouse}`;
+    return batchNo ? `${code}::${warehouse}::${batchNo}` : `${code}::${warehouse}`;
 }
 
 export function _getCachedStockQty(context: InvoiceContext, key: string | null) {

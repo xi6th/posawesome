@@ -98,7 +98,9 @@ def _build_search_plan(
     search_serial_no = pos_profile.get("posa_search_serial_no")
     search_batch_no = pos_profile.get("posa_search_batch_no")
     posa_show_template_items = pos_profile.get("posa_show_template_items")
-    posa_display_items_in_stock = pos_profile.get("posa_display_items_in_stock")
+    posa_display_items_in_stock = bool(
+        pos_profile.get("posa_display_items_in_stock") or pos_profile.get("hide_unavailable_items")
+    )
 
     limit = _to_positive_int(limit)
     offset = _to_positive_int(offset)
@@ -321,11 +323,7 @@ def _shape_item_row(
     if plan.posa_show_template_items and item.get("variant_of"):
         item_attributes = (variant_attributes_map or {}).get(item.get("name"), [])
 
-    if (
-        plan.posa_display_items_in_stock
-        and (not detail.get("actual_qty") or detail.get("actual_qty") < 0)
-        and not item.get("has_variants")
-    ):
+    if (not detail.get("actual_qty") or detail.get("actual_qty") < 0) and not item.get("has_variants"):
         return None
 
     row: Dict[str, Any] = {}

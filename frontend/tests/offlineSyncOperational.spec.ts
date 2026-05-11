@@ -168,6 +168,7 @@ describe("operational offline sync adapters", () => {
 					item_code: "ITEM-001",
 				}),
 			],
+			"Main WH",
 		);
 		expect(cacheMocks.mergeCachedPriceListItems).toHaveBeenCalledWith(
 			"Retail",
@@ -185,6 +186,7 @@ describe("operational offline sync adapters", () => {
 			"POS-1",
 			["ITEM-002"],
 			"Retail",
+			"Main WH",
 		);
 		expect(cacheMocks.removeCachedPriceListItems).toHaveBeenCalledWith(
 			["ITEM-002"],

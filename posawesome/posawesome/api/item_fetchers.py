@@ -9,7 +9,7 @@ import frappe
 from erpnext.setup.utils import get_exchange_rate
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Sum
-from frappe.utils import cint, flt, nowdate
+from frappe.utils import cint, cstr, flt, nowdate
 from frappe.utils.caching import redis_cache
 
 
@@ -38,6 +38,7 @@ def _normalize_codes(codes: Iterable[str]) -> Tuple[str, ...]:
 
 _price_cache: Dict[int, Callable[..., Any]] = {}
 _bin_cache: Dict[int, Callable[..., Any]] = {}
+_warehouse_bin_cache: Dict[int, Callable[..., Any]] = {}
 _meta_cache: Dict[int, Callable[..., Any]] = {}
 _barcode_cache: Dict[int, Callable[..., Any]] = {}
 _uom_cache: Dict[int, Callable[..., Any]] = {}
@@ -142,6 +143,46 @@ def get_bin_qty(warehouse: Optional[str], item_codes: Sequence[str], ttl: Option
 
     cached = _cache_wrapper(_bin_cache, ttl, _fetch_bin_qty)
     return cached(warehouse, tuple(item_codes))
+
+
+def _fetch_warehouse_bin_qty(company: Optional[str], item_codes: Tuple[str, ...]):
+    """Return per-warehouse Bin quantities for the supplied item codes."""
+
+    if not item_codes:
+        return []
+
+    filters = {
+        "item_code": ["in", item_codes],
+    }
+    params: Dict[str, Any] = {"item_codes": item_codes}
+    company_clause = ""
+    if company:
+        company_clause = "AND w.company = %(company)s"
+        params["company"] = company
+
+    query = f"""
+        SELECT
+            b.item_code,
+            b.warehouse,
+            SUM(b.actual_qty) AS actual_qty
+        FROM `tabBin` b
+        INNER JOIN `tabWarehouse` w ON w.name = b.warehouse
+        WHERE b.item_code IN %(item_codes)s
+        {company_clause}
+        GROUP BY b.item_code, b.warehouse
+    """
+    return frappe.db.sql(query, params, as_dict=True)
+
+
+def get_warehouse_bin_qty(
+    company: Optional[str],
+    item_codes: Sequence[str],
+    ttl: Optional[int] = None,
+):
+    """Return cached per-warehouse Bin quantities for the supplied item codes."""
+
+    cached = _cache_wrapper(_warehouse_bin_cache, ttl, _fetch_warehouse_bin_qty)
+    return cached(company, tuple(item_codes))
 
 
 def _fetch_item_meta(item_codes: Tuple[str, ...]):
@@ -456,12 +497,45 @@ def get_bom_costs(meta_rows: Sequence[frappe._dict], ttl: Optional[int] = None):
 class ItemLookupData:
     price_map: Dict[str, Dict[str, frappe._dict]]
     stock_map: Dict[str, float]
+    warehouse_map: Dict[str, str]
+    warehouse_qty_map: Dict[str, Dict[str, float]]
     meta_map: Dict[str, frappe._dict]
     uom_map: Dict[str, List[Dict[str, Any]]]
     barcode_map: Dict[str, List[Dict[str, Any]]]
-    batch_map: Dict[str, List[Dict[str, Any]]]
-    serial_map: Dict[str, List[Dict[str, Any]]]
+    batch_map: Dict[str, Dict[str, List[Dict[str, Any]]]]
+    serial_map: Dict[str, Dict[str, List[Dict[str, Any]]]]
     bom_map: Dict[str, Dict[str, Any]]
+
+
+def _select_stock_warehouse(
+    preferred_warehouse: Optional[str],
+    warehouse_qty_map: Dict[str, float],
+) -> Tuple[str, float]:
+    """Pick the best warehouse for an item based on available qty."""
+
+    normalized_preferred = cstr(preferred_warehouse or "").strip()
+    if normalized_preferred and normalized_preferred in warehouse_qty_map:
+        preferred_qty = flt(warehouse_qty_map.get(normalized_preferred))
+        if preferred_qty > 0:
+            return normalized_preferred, preferred_qty
+
+    positive_warehouses = [
+        (warehouse, flt(qty))
+        for warehouse, qty in warehouse_qty_map.items()
+        if flt(qty) > 0
+    ]
+    if positive_warehouses:
+        positive_warehouses.sort(key=lambda row: (-row[1], row[0]))
+        return positive_warehouses[0]
+
+    if normalized_preferred and normalized_preferred in warehouse_qty_map:
+        return normalized_preferred, flt(warehouse_qty_map.get(normalized_preferred))
+
+    if warehouse_qty_map:
+        warehouse, qty = max(warehouse_qty_map.items(), key=lambda row: flt(row[1]))
+        return warehouse, flt(qty)
+
+    return normalized_preferred, 0.0
 
 
 def _select_price(
@@ -515,8 +589,19 @@ def merge_item_row(
     )
     price_currency = price_row.get("currency") if price_row else None
 
-    batch_rows = lookup_data.batch_map.get(item_code, [])
-    actual_qty = lookup_data.stock_map.get(item_code, 0) or 0
+    warehouse_qty_map = lookup_data.warehouse_qty_map.get(item_code, {})
+    requested_warehouse = cstr(item.get("warehouse") or "").strip()
+    chosen_warehouse = requested_warehouse
+    requested_qty = flt(warehouse_qty_map.get(requested_warehouse, 0)) if requested_warehouse else 0
+    if not requested_warehouse or requested_qty <= 0:
+        chosen_warehouse = lookup_data.warehouse_map.get(item_code) or requested_warehouse
+
+    batch_rows = (
+        lookup_data.batch_map.get(item_code, {}).get(chosen_warehouse, [])
+        if chosen_warehouse
+        else []
+    )
+    actual_qty = flt(warehouse_qty_map.get(chosen_warehouse, 0)) if chosen_warehouse else 0
     if meta.get("has_batch_no") and batch_rows:
         actual_qty = sum(
             flt(batch.get("batch_qty"))
@@ -527,6 +612,7 @@ def merge_item_row(
     row = dict(item)
     row.update(
         {
+            "warehouse": chosen_warehouse or item.get("warehouse"),
             "item_uoms": uoms,
             "item_barcode": lookup_data.barcode_map.get(item_code, []),
             "actual_qty": actual_qty,
@@ -538,7 +624,9 @@ def merge_item_row(
             "valuation_rate": meta.get("valuation_rate"),
             "default_bom": meta.get("default_bom"),
             "batch_no_data": batch_rows,
-            "serial_no_data": lookup_data.serial_map.get(item_code, []),
+            "serial_no_data": lookup_data.serial_map.get(item_code, {}).get(chosen_warehouse, [])
+            if chosen_warehouse
+            else [],
             "rate": price_row.get("price_list_rate") if price_row else 0,
             "price_list_rate": price_row.get("price_list_rate") if price_row else 0,
             "currency": price_currency or price_list_currency,
@@ -623,7 +711,7 @@ class ItemDetailAggregator:
 
         item_codes_tuple = _normalize_codes(item_codes)
         if not item_codes_tuple:
-            return ItemLookupData({}, {}, {}, {}, {}, {}, {}, {})
+            return ItemLookupData({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
 
         use_cache = bool(self.pos_profile.get("posa_use_server_cache"))
 
@@ -649,14 +737,17 @@ class ItemDetailAggregator:
 
         # Stock, metadata, UOM and barcode data are reused both for batches and the
         # final merged item rows, so collect them up front.
+        warehouse_qty_rows = (
+            get_warehouse_bin_qty(self.pos_profile.get("company"), item_codes_tuple, ttl=self.cache_ttl)
+            if use_cache
+            else _fetch_warehouse_bin_qty(self.pos_profile.get("company"), item_codes_tuple)
+        )
         if use_cache:
-            stock_rows = get_bin_qty(self.warehouse, item_codes_tuple, ttl=self.cache_ttl)
             meta_rows = get_item_meta(item_codes_tuple, ttl=self.cache_ttl)
             uom_rows = get_uoms(item_codes_tuple, ttl=self.cache_ttl)
             barcode_rows = get_barcodes(item_codes_tuple, ttl=self.cache_ttl)
             bom_map = get_bom_costs(meta_rows, ttl=self.cache_ttl)
         else:
-            stock_rows = _fetch_bin_qty(self.warehouse, item_codes_tuple)
             meta_rows = _fetch_item_meta(item_codes_tuple)
             uom_rows = _fetch_uoms(item_codes_tuple)
             barcode_rows = _fetch_barcodes(item_codes_tuple)
@@ -664,26 +755,82 @@ class ItemDetailAggregator:
                 tuple((str(row.get("name") or ""), row.get("default_bom")) for row in meta_rows if row.get("name"))
             )
 
-        batch_items = [row.name for row in meta_rows if row.get("has_batch_no")]
-        serial_items = [row.name for row in meta_rows if row.get("has_serial_no")]
-
-        if use_cache:
-            batch_rows = get_batches(
-                self.warehouse, _normalize_codes(batch_items), ttl=self.cache_ttl
-            )
-            serial_rows = get_serials(
-                self.warehouse, _normalize_codes(serial_items), ttl=self.cache_ttl
-            )
-        else:
-            batch_rows = _fetch_batches(self.warehouse, _normalize_codes(batch_items))
-            serial_rows = _fetch_serials(self.warehouse, _normalize_codes(serial_items))
-
         price_map: Dict[str, Dict[str, frappe._dict]] = {}
         for row in price_rows:
             price_map.setdefault(row.item_code, {})[row.get("uom") or "None"] = row
 
-        stock_map = {row.item_code: row.actual_qty for row in stock_rows}
         meta_map = {row.name: row for row in meta_rows}
+        warehouse_qty_map: Dict[str, Dict[str, float]] = {}
+        resolved_warehouse_map: Dict[str, str] = {}
+        stock_map: Dict[str, float] = {}
+        for row in warehouse_qty_rows:
+            item_code = row.get("item_code")
+            warehouse = row.get("warehouse")
+            if not item_code or not warehouse:
+                continue
+            qty_map = warehouse_qty_map.setdefault(item_code, {})
+            qty_map[warehouse] = flt(row.get("actual_qty"))
+
+        for item_code in item_codes_tuple:
+            preferred_warehouse = self.warehouse
+            chosen_warehouse, chosen_qty = _select_stock_warehouse(
+                preferred_warehouse,
+                warehouse_qty_map.get(item_code, {}),
+            )
+            resolved_warehouse_map[item_code] = chosen_warehouse
+            stock_map[item_code] = chosen_qty
+
+        batch_items_by_warehouse: Dict[str, List[str]] = {}
+        serial_items_by_warehouse: Dict[str, List[str]] = {}
+        for item_code, meta in meta_map.items():
+            resolved_warehouse = resolved_warehouse_map.get(item_code)
+            if not resolved_warehouse:
+                continue
+            if meta.get("has_batch_no"):
+                batch_items_by_warehouse.setdefault(resolved_warehouse, []).append(item_code)
+            if meta.get("has_serial_no"):
+                serial_items_by_warehouse.setdefault(resolved_warehouse, []).append(item_code)
+
+        batch_map: Dict[str, Dict[str, List[Dict[str, object]]]] = {}
+        serial_map: Dict[str, Dict[str, List[Dict[str, object]]]] = {}
+
+        for warehouse, codes in batch_items_by_warehouse.items():
+            codes_tuple = _normalize_codes(codes)
+            if not codes_tuple:
+                continue
+            rows = (
+                get_batches(warehouse, codes_tuple, ttl=self.cache_ttl)
+                if use_cache
+                else _fetch_batches(warehouse, codes_tuple)
+            )
+            for row in rows:
+                is_expired = bool(row.expiry_date and str(row.expiry_date) <= str(self.today))
+                if is_expired:
+                    continue
+                batch_map.setdefault(row.item_code, {}).setdefault(warehouse, []).append(
+                    {
+                        "batch_no": row.batch_no,
+                        "batch_qty": row.batch_qty,
+                        "expiry_date": row.expiry_date,
+                        "batch_price": row.batch_price,
+                        "manufacturing_date": row.manufacturing_date,
+                        "is_expired": is_expired,
+                    }
+                )
+
+        for warehouse, codes in serial_items_by_warehouse.items():
+            codes_tuple = _normalize_codes(codes)
+            if not codes_tuple:
+                continue
+            rows = (
+                get_serials(warehouse, codes_tuple, ttl=self.cache_ttl)
+                if use_cache
+                else _fetch_serials(warehouse, codes_tuple)
+            )
+            for row in rows:
+                serial_map.setdefault(row.item_code, {}).setdefault(warehouse, []).append(
+                    {"serial_no": row.serial_no, "batch_no": row.batch_no}
+                )
 
         uom_map: Dict[str, List[Dict[str, object]]] = {}
         for row in uom_rows:
@@ -697,31 +844,11 @@ class ItemDetailAggregator:
                 {"barcode": row.barcode, "posa_uom": row.posa_uom}
             )
 
-        batch_map: Dict[str, List[Dict[str, object]]] = {}
-        for row in batch_rows:
-            is_expired = bool(row.expiry_date and str(row.expiry_date) <= str(self.today))
-            if is_expired:
-                continue
-            batch_map.setdefault(row.item_code, []).append(
-                {
-                    "batch_no": row.batch_no,
-                    "batch_qty": row.batch_qty,
-                    "expiry_date": row.expiry_date,
-                    "batch_price": row.batch_price,
-                    "manufacturing_date": row.manufacturing_date,
-                    "is_expired": is_expired,
-                }
-            )
-
-        serial_map: Dict[str, List[Dict[str, object]]] = {}
-        for row in serial_rows:
-            serial_map.setdefault(row.item_code, []).append(
-                {"serial_no": row.serial_no, "batch_no": row.batch_no}
-            )
-
         return ItemLookupData(
             price_map=price_map,
             stock_map=stock_map,
+            warehouse_map=resolved_warehouse_map,
+            warehouse_qty_map=warehouse_qty_map,
             meta_map=meta_map,
             uom_map=uom_map,
             barcode_map=barcode_map,

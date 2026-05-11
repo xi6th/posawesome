@@ -105,4 +105,3 @@ describe("useItemDetailFetcher", () => {
 		expect(details).toHaveLength(1);
 	});
 });
-

@@ -73,6 +73,73 @@ def _run_post_submit_payments(invoice_doc, data, is_payment_entry, total_cash, c
     )
 
 
+def _resolve_invoice_item_warehouses(invoice_doc):
+    """Align invoice line warehouses with stock actually available for the item."""
+
+    try:
+        from posawesome.posawesome.api.item_fetchers import (
+            get_warehouse_bin_qty,
+            _select_stock_warehouse,
+        )
+    except Exception:
+        return
+
+    company = getattr(invoice_doc, "company", None)
+    if not company:
+        return
+
+    preferred_warehouse = getattr(invoice_doc, "pos_profile", None)
+    if preferred_warehouse:
+        preferred_warehouse = frappe.db.get_value("POS Profile", preferred_warehouse, "warehouse")
+
+    item_codes = [
+        d.get("item_code")
+        for d in getattr(invoice_doc, "items", [])
+        if d.get("item_code") and _is_stock_item_row(d)
+    ]
+    if not item_codes:
+        return
+
+    stock_rows = get_warehouse_bin_qty(company, tuple(sorted(set(item_codes))))
+    warehouse_qty_map = {}
+    for row in stock_rows or []:
+        item_code = row.get("item_code")
+        warehouse = row.get("warehouse")
+        if not item_code or not warehouse:
+            continue
+        warehouse_qty_map.setdefault(item_code, {})[warehouse] = flt(row.get("actual_qty") or 0)
+
+    for item in getattr(invoice_doc, "items", []):
+        item_code = item.get("item_code")
+        if not item_code or not _is_stock_item_row(item):
+            continue
+
+        current_warehouse = item.get("warehouse")
+        selected_warehouse, _ = _select_stock_warehouse(
+            current_warehouse or preferred_warehouse,
+            warehouse_qty_map.get(item_code, {}),
+        )
+        if selected_warehouse and selected_warehouse != current_warehouse:
+            item.warehouse = selected_warehouse
+
+
+def _is_stock_item_row(item):
+    """Return True when the row should be treated as a stock item."""
+
+    if not item:
+        return False
+
+    flag = item.get("is_stock_item")
+    if flag is not None:
+        return bool(cint(flag))
+
+    item_code = item.get("item_code")
+    if not item_code:
+        return False
+
+    return bool(cint(frappe.get_cached_value("Item", item_code, "is_stock_item") or 0))
+
+
 def _process_post_submit_payments(
     invoice_doc,
     data,
@@ -838,6 +905,7 @@ def submit_invoice(invoice, data, submit_in_background=False):
         if str(row.get("mode_of_payment") or "").strip() != "Gift Card"
     ]
 
+    _resolve_invoice_item_warehouses(invoice_doc)
     _auto_set_return_batches(invoice_doc)
 
     # if frappe.get_value("POS Profile", invoice_doc.pos_profile, "posa_auto_set_batch"):
@@ -921,6 +989,7 @@ def submit_in_background_job(kwargs):
         frappe.flags.ignore_account_permission = True
 
         # Re-run validations that may be impacted while queued (stock, credit limits)
+        _resolve_invoice_item_warehouses(invoice_doc)
         _validate_stock_on_invoice(invoice_doc)
         if hasattr(invoice_doc, "validate_credit_limit"):
             invoice_doc.validate_credit_limit()

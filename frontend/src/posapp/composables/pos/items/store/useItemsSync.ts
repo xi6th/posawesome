@@ -116,6 +116,7 @@ export function useItemsSync() {
 			posProfile.name,
 			typeof activePriceList === "string" ? activePriceList : "",
 			detailItems,
+			posProfile.warehouse,
 		);
 
 		detailItems.forEach((item) => {
