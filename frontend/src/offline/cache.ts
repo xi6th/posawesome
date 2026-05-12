@@ -680,7 +680,12 @@ function buildItemDetailsCacheKey(
 		: `${normalizedProfile}::${normalizedPriceList}`;
 }
 
-export function saveItemDetailsCache(profileName, priceList, items, warehouse = null) {
+export function saveItemDetailsCache(
+	profileName: string,
+	priceList: string,
+	items: any[],
+	warehouse: string | null = null,
+) {
 	try {
 		const cache = memory.item_details_cache || {};
 		const profileKey = buildItemDetailsCacheKey(profileName, priceList, warehouse);
@@ -791,7 +796,7 @@ export function clearItemDetailsCache() {
 }
 
 export function removeItemDetailsCacheEntries(
-	profileName,
+	profileName: string,
 	itemCodes: string[] = [],
 	priceList: string | null = null,
 	warehouse: string | null = null,
