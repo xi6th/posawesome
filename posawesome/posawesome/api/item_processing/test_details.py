@@ -242,7 +242,7 @@ class TestGetItemDetailNormalization(unittest.TestCase):
 
         self.assertEqual(result["actual_qty"], 4.5)
 
-    def test_falls_back_to_a_warehouse_with_stock_when_preferred_has_none(self):
+    def test_keeps_the_requested_warehouse_even_when_another_warehouse_has_stock(self):
         captured = {}
 
         def fake_get_stock_availability(item_code, warehouse):
@@ -250,13 +250,8 @@ class TestGetItemDetailNormalization(unittest.TestCase):
             return {"Warehouse B": 13, "Warehouse A": 0}.get(warehouse, 0)
 
         with patch.object(self.details, "get_stock_availability", side_effect=fake_get_stock_availability), patch.object(
-            self.details,
-            "get_warehouse_bin_qty",
-            return_value=[
-                {"item_code": "ITEM-004", "warehouse": "Warehouse A", "actual_qty": 0},
-                {"item_code": "ITEM-004", "warehouse": "Warehouse B", "actual_qty": 13},
-            ],
-        ), patch.object(self.details, "get_batches", return_value=[]), patch.object(
+            self.details, "get_batches", return_value=[]
+        ), patch.object(
             self.details.frappe, "get_all", return_value=[]
         ), patch.object(
             self.details.frappe.db,
@@ -284,9 +279,9 @@ class TestGetItemDetailNormalization(unittest.TestCase):
                 company="Test Company",
             )
 
-        self.assertEqual(captured["warehouse"], "Warehouse B")
-        self.assertEqual(result["warehouse"], "Warehouse B")
-        self.assertEqual(result["actual_qty"], 13)
+        self.assertEqual(captured["warehouse"], "Warehouse A")
+        self.assertEqual(result["warehouse"], "Warehouse A")
+        self.assertEqual(result["actual_qty"], 0)
 
 
 if __name__ == "__main__":

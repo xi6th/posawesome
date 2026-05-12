@@ -1087,6 +1087,7 @@ class TestInvoiceIdempotency(unittest.TestCase):
             return 0
 
         self.creation.frappe.db.get_value = fake_get_value
+        self.creation.frappe.db.has_column = lambda doctype, fieldname: True
         self.creation.frappe.db.exists = lambda *args, **kwargs: False
         self.creation.frappe.get_doc = lambda *args: existing_doc
         self.creation.update_invoice = lambda *_args, **_kwargs: (_ for _ in ()).throw(

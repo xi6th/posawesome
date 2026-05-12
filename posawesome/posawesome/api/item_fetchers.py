@@ -511,31 +511,13 @@ def _select_stock_warehouse(
     preferred_warehouse: Optional[str],
     warehouse_qty_map: Dict[str, float],
 ) -> Tuple[str, float]:
-    """Pick the best warehouse for an item based on available qty."""
+    """Return the preferred warehouse and its quantity without switching scope."""
 
     normalized_preferred = cstr(preferred_warehouse or "").strip()
-    if normalized_preferred and normalized_preferred in warehouse_qty_map:
-        preferred_qty = flt(warehouse_qty_map.get(normalized_preferred))
-        if preferred_qty > 0:
-            return normalized_preferred, preferred_qty
+    if not normalized_preferred:
+        return "", 0.0
 
-    positive_warehouses = [
-        (warehouse, flt(qty))
-        for warehouse, qty in warehouse_qty_map.items()
-        if flt(qty) > 0
-    ]
-    if positive_warehouses:
-        positive_warehouses.sort(key=lambda row: (-row[1], row[0]))
-        return positive_warehouses[0]
-
-    if normalized_preferred and normalized_preferred in warehouse_qty_map:
-        return normalized_preferred, flt(warehouse_qty_map.get(normalized_preferred))
-
-    if warehouse_qty_map:
-        warehouse, qty = max(warehouse_qty_map.items(), key=lambda row: flt(row[1]))
-        return warehouse, flt(qty)
-
-    return normalized_preferred, 0.0
+    return normalized_preferred, flt(warehouse_qty_map.get(normalized_preferred, 0))
 
 
 def _select_price(
@@ -772,13 +754,11 @@ class ItemDetailAggregator:
             qty_map[warehouse] = flt(row.get("actual_qty"))
 
         for item_code in item_codes_tuple:
-            preferred_warehouse = self.warehouse
-            chosen_warehouse, chosen_qty = _select_stock_warehouse(
-                preferred_warehouse,
-                warehouse_qty_map.get(item_code, {}),
-            )
-            resolved_warehouse_map[item_code] = chosen_warehouse
-            stock_map[item_code] = chosen_qty
+            preferred_warehouse = self.warehouse or ""
+            resolved_warehouse_map[item_code] = preferred_warehouse
+            stock_map[item_code] = flt(
+                warehouse_qty_map.get(item_code, {}).get(preferred_warehouse, 0)
+            ) if preferred_warehouse else 0.0
 
         batch_items_by_warehouse: Dict[str, List[str]] = {}
         serial_items_by_warehouse: Dict[str, List[str]] = {}

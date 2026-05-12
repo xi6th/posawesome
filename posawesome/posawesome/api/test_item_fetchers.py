@@ -54,6 +54,7 @@ def _install_stubs():
 	frappe_utils = types.ModuleType("frappe.utils")
 	frappe_utils.cint = int
 	frappe_utils.flt = float
+	frappe_utils.cstr = str
 	frappe_utils.nowdate = lambda: "2026-04-17"
 	sys.modules["frappe.utils"] = frappe_utils
 
@@ -130,6 +131,8 @@ class TestItemFetchers(unittest.TestCase):
 		lookup = self.module.ItemLookupData(
 			price_map={},
 			stock_map={},
+			warehouse_map={},
+			warehouse_qty_map={},
 			meta_map={"ITEM-001": AttrDict({"name": "ITEM-001", "stock_uom": "Nos"})},
 			uom_map={},
 			barcode_map={},
@@ -148,6 +151,18 @@ class TestItemFetchers(unittest.TestCase):
 		self.assertEqual(row["manufacturing_cost"], 33)
 		self.assertEqual(row["manufacturing_cost_source"], "bom")
 		self.assertEqual(row["manufacturing_bom"], "BOM-ITEM-001")
+
+	def test_select_stock_warehouse_stays_within_preferred_group_scope(self):
+		selected_warehouse, selected_qty = self.module._select_stock_warehouse(
+			"GROUP-A",
+			{
+				"WH-A-1": 4,
+				"WH-B-1": 10,
+			},
+		)
+
+		self.assertEqual(selected_warehouse, "GROUP-A")
+		self.assertEqual(selected_qty, 0.0)
 
 
 if __name__ == "__main__":

@@ -74,53 +74,20 @@ def _run_post_submit_payments(invoice_doc, data, is_payment_entry, total_cash, c
 
 
 def _resolve_invoice_item_warehouses(invoice_doc):
-    """Align invoice line warehouses with stock actually available for the item."""
-
-    try:
-        from posawesome.posawesome.api.item_fetchers import (
-            get_warehouse_bin_qty,
-            _select_stock_warehouse,
-        )
-    except Exception:
-        return
-
-    company = getattr(invoice_doc, "company", None)
-    if not company:
-        return
+    """Default missing item warehouses to the POS profile warehouse."""
 
     preferred_warehouse = getattr(invoice_doc, "pos_profile", None)
     if preferred_warehouse:
         preferred_warehouse = frappe.db.get_value("POS Profile", preferred_warehouse, "warehouse")
-
-    item_codes = [
-        d.get("item_code")
-        for d in getattr(invoice_doc, "items", [])
-        if d.get("item_code") and _is_stock_item_row(d)
-    ]
-    if not item_codes:
-        return
-
-    stock_rows = get_warehouse_bin_qty(company, tuple(sorted(set(item_codes))))
-    warehouse_qty_map = {}
-    for row in stock_rows or []:
-        item_code = row.get("item_code")
-        warehouse = row.get("warehouse")
-        if not item_code or not warehouse:
-            continue
-        warehouse_qty_map.setdefault(item_code, {})[warehouse] = flt(row.get("actual_qty") or 0)
 
     for item in getattr(invoice_doc, "items", []):
         item_code = item.get("item_code")
         if not item_code or not _is_stock_item_row(item):
             continue
 
-        current_warehouse = item.get("warehouse")
-        selected_warehouse, _ = _select_stock_warehouse(
-            current_warehouse or preferred_warehouse,
-            warehouse_qty_map.get(item_code, {}),
-        )
-        if selected_warehouse and selected_warehouse != current_warehouse:
-            item.warehouse = selected_warehouse
+        current_warehouse = cstr(item.get("warehouse") or "").strip()
+        if not current_warehouse and preferred_warehouse:
+            item.warehouse = preferred_warehouse
 
 
 def _is_stock_item_row(item):
@@ -1065,7 +1032,11 @@ def validate_cart_items(items, pos_profile=None):
     if not _should_block(pos_profile):
         return []
 
-    errors = _collect_stock_errors(items)
+    profile_warehouse = None
+    if pos_profile:
+        profile_warehouse = frappe.db.get_value("POS Profile", pos_profile, "warehouse")
+
+    errors = _collect_stock_errors(items, profile_warehouse=profile_warehouse)
     if not errors:
         return []
 

@@ -3,7 +3,6 @@ from frappe.utils import cint, flt, cstr, getdate, nowdate
 from frappe import _
 from erpnext.stock.doctype.batch.batch import get_batch_qty
 from posawesome.posawesome.api.items import get_bulk_stock_availability, get_stock_availability
-from posawesome.posawesome.api.item_fetchers import get_warehouse_bin_qty, _select_stock_warehouse
 from posawesome.posawesome.api.invoice_processing.utils import _sanitize_item_name
 
 def _is_stock_item(item):
@@ -42,25 +41,17 @@ def _allow_negative_stock(item, global_allow_negative=None):
     return bool(cint(flag or 0))
 
 
-def _resolve_stock_warehouse(item, company=None, company_stock_map=None):
-    """Pick the warehouse that can actually fulfill the item."""
+def _resolve_stock_warehouse(item, profile_warehouse=None):
+    """Return the warehouse the POS is allowed to sell from."""
 
     preferred_warehouse = cstr(item.get("warehouse") or "").strip()
-    item_code = item.get("item_code")
-    if not item_code:
+    profile_warehouse = cstr(profile_warehouse or "").strip()
+
+    if preferred_warehouse:
         return preferred_warehouse
-
-    warehouse_qty_map = company_stock_map.get(item_code, {}) if company_stock_map else {}
-    if not warehouse_qty_map and company:
-        rows = get_warehouse_bin_qty(company, (item_code,)) or []
-        warehouse_qty_map = {
-            row.get("warehouse"): flt(row.get("actual_qty") or 0)
-            for row in rows
-            if row.get("warehouse")
-        }
-
-    selected_warehouse, _ = _select_stock_warehouse(preferred_warehouse, warehouse_qty_map)
-    return selected_warehouse or preferred_warehouse
+    if profile_warehouse:
+        return profile_warehouse
+    return ""
 
 
 def _get_available_stock(item):
@@ -75,30 +66,12 @@ def _get_available_stock(item):
     return get_stock_availability(item_code, warehouse)
 
 
-def _collect_stock_errors(items, company=None):
+def _collect_stock_errors(items, company=None, profile_warehouse=None):
     """Return list of items exceeding available stock."""
     errors = []
     items_to_check = []
 
     global_allow_negative = cint(frappe.db.get_single_value("Stock Settings", "allow_negative_stock") or 0)
-    company_stock_map = {}
-    if company:
-        all_item_codes = tuple(
-            sorted(
-                {
-                    d.get("item_code")
-                    for d in items
-                    if d and d.get("item_code") and _is_stock_item(d)
-                }
-            )
-        )
-        stock_rows = get_warehouse_bin_qty(company, all_item_codes) if all_item_codes else []
-        for row in stock_rows or []:
-            item_code = row.get("item_code")
-            warehouse = row.get("warehouse")
-            if not item_code or not warehouse:
-                continue
-            company_stock_map.setdefault(item_code, {})[warehouse] = flt(row.get("actual_qty") or 0)
 
     for d in items:
         if flt(d.get("qty")) < 0:
@@ -107,7 +80,27 @@ def _collect_stock_errors(items, company=None):
             continue
         if _allow_negative_stock(d, global_allow_negative=global_allow_negative):
             continue
-        resolved_warehouse = _resolve_stock_warehouse(d, company=company, company_stock_map=company_stock_map)
+        current_warehouse = cstr(d.get("warehouse") or "").strip()
+        allowed_warehouse = cstr(profile_warehouse or "").strip()
+        if not current_warehouse:
+            resolved_warehouse = _resolve_stock_warehouse(d, profile_warehouse=allowed_warehouse)
+            if resolved_warehouse:
+                d["warehouse"] = resolved_warehouse
+                current_warehouse = resolved_warehouse
+        elif allowed_warehouse and current_warehouse != allowed_warehouse:
+            errors.append(
+                {
+                    "item_code": d.get("item_code"),
+                    "warehouse": current_warehouse,
+                    "requested_qty": flt(d.get("stock_qty") or (flt(d.get("qty")) * flt(d.get("conversion_factor") or 1))),
+                    "available_qty": 0,
+                    "reason": "warehouse_mismatch",
+                    "allowed_warehouse": allowed_warehouse,
+                }
+            )
+            continue
+
+        resolved_warehouse = _resolve_stock_warehouse(d, profile_warehouse=allowed_warehouse)
         if resolved_warehouse:
             d["warehouse"] = resolved_warehouse
         items_to_check.append(d)
@@ -157,7 +150,18 @@ def _validate_stock_on_invoice(invoice_doc):
     items_to_check = [d.as_dict() for d in invoice_doc.items]
     if hasattr(invoice_doc, "packed_items"):
         items_to_check.extend([d.as_dict() for d in invoice_doc.packed_items])
-    errors = _collect_stock_errors(items_to_check, company=getattr(invoice_doc, "company", None))
+    profile_warehouse = None
+    if getattr(invoice_doc, "pos_profile", None):
+        profile_warehouse = frappe.db.get_value(
+            "POS Profile",
+            invoice_doc.pos_profile,
+            "warehouse",
+        )
+    errors = _collect_stock_errors(
+        items_to_check,
+        company=getattr(invoice_doc, "company", None),
+        profile_warehouse=profile_warehouse,
+    )
     if errors and _should_block(invoice_doc.pos_profile):
         frappe.throw(frappe.as_json({"errors": errors}), frappe.ValidationError)
 

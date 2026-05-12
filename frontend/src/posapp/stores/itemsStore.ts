@@ -7,7 +7,11 @@ import { defineStore } from "pinia";
 import { ref, computed, watch } from "vue";
 import type { Item, POSProfile } from "../types/models";
 import itemService from "../services/itemService";
-import { refreshBootstrapSnapshotFromCacheState } from "../../offline/index";
+import {
+	refreshBootstrapSnapshotFromCacheState,
+	getItemsLastSync,
+} from "../../offline/index";
+import { dispatchRealtimeStockPayload } from "../utils/realtimeStock";
 
 // Composables
 import { useItemsCache } from "../composables/pos/items/store/useItemsCache";
@@ -105,6 +109,10 @@ export const useItemsStore = defineStore("items", () => {
 	const posProfile = ref<POSProfile | null>(null);
 	const customer = ref<string | null>(null);
 	const customerPriceList = ref<string | null>(null);
+	const liveUpdateSource = ref<EventSource | null>(null);
+	const liveRefreshTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+	const liveRefreshInFlight = ref(false);
+	const liveUpdateProfileName = ref("");
 
 	// Composables Initialization
 	const {
@@ -228,6 +236,106 @@ export const useItemsStore = defineStore("items", () => {
 
 	const getStorageScope = () => getCacheScope();
 
+	const stopLiveUpdates = () => {
+		if (liveRefreshTimer.value) {
+			clearTimeout(liveRefreshTimer.value);
+			liveRefreshTimer.value = null;
+		}
+		if (liveUpdateSource.value) {
+			liveUpdateSource.value.close();
+			liveUpdateSource.value = null;
+		}
+		liveUpdateProfileName.value = "";
+	};
+
+	const refreshItemsFromLiveUpdates = async () => {
+		if (liveRefreshInFlight.value) {
+			return;
+		}
+		if (!itemsLoaded.value || !posProfile.value?.name) {
+			return;
+		}
+
+		liveRefreshInFlight.value = true;
+		try {
+			const lastSync = getItemsLastSync();
+			if (lastSync) {
+				await refreshModifiedItems(activePriceList.value || null);
+			} else {
+				await loadItems({ forceServer: true });
+			}
+		} catch (error) {
+			console.error("Failed to refresh items from live updates:", error);
+		} finally {
+			liveRefreshInFlight.value = false;
+		}
+	};
+
+	const scheduleLiveRefresh = () => {
+		if (liveRefreshTimer.value) {
+			clearTimeout(liveRefreshTimer.value);
+		}
+		liveRefreshTimer.value = setTimeout(() => {
+			liveRefreshTimer.value = null;
+			void refreshItemsFromLiveUpdates();
+		}, 1000);
+	};
+
+	const handleLiveItemUpdate = (payload: any) => {
+		const normalized = dispatchRealtimeStockPayload(payload);
+		if (normalized) {
+			scheduleLiveRefresh();
+		}
+	};
+
+	const startLiveUpdates = () => {
+		if (typeof window === "undefined" || typeof window.EventSource === "undefined") {
+			return;
+		}
+		if (!posProfile.value?.name) {
+			return;
+		}
+
+		const profileName = posProfile.value.name;
+		if (liveUpdateSource.value && liveUpdateProfileName.value === profileName) {
+			return;
+		}
+
+		stopLiveUpdates();
+		liveUpdateProfileName.value = profileName;
+
+		const cursor = getItemsLastSync() || new Date().toISOString();
+		const params = new URLSearchParams({
+			pos_profile: profileName,
+			cursor,
+			price_list: activePriceList.value || "",
+			customer: customer.value || "",
+		});
+
+		const source = new window.EventSource(
+			`/api/method/posawesome.posawesome.api.live_updates.stream_item_updates?${params.toString()}`,
+		);
+
+		const handleEvent = (event: MessageEvent) => {
+			try {
+				const payload = JSON.parse(String(event.data || "{}"));
+				handleLiveItemUpdate(payload);
+			} catch (error) {
+				console.warn("Failed to parse live item update payload", error);
+			}
+		};
+
+		source.addEventListener("posa_stock_changed", handleEvent);
+		source.addEventListener("message", handleEvent);
+		source.onerror = () => {
+			if (source.readyState === window.EventSource.CLOSED) {
+				stopLiveUpdates();
+			}
+		};
+
+		liveUpdateSource.value = source;
+	};
+
 	const setItems = (
 		newItems: Item[],
 		options: { append?: boolean; totalCount?: number } = {},
@@ -343,6 +451,7 @@ export const useItemsStore = defineStore("items", () => {
 		cust: string | null = null,
 		priceList: string | null = null,
 	) => {
+		stopLiveUpdates();
 		posProfile.value = profile;
 		customer.value = cust;
 		customerPriceList.value = priceList;
@@ -355,6 +464,7 @@ export const useItemsStore = defineStore("items", () => {
 			await loadItems({ forceServer: false });
 		}
 		itemsLoaded.value = true;
+		startLiveUpdates();
 	};
 
 	const loadCachedItems = async () => {

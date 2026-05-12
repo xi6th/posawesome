@@ -325,17 +325,7 @@ export default {
 				this.pos_profile = await ensurePosProfile();
 			}
 			if (!this.pos_profile.warehouse) {
-				try {
-					const res = await frappe.call({
-						method: "posawesome.posawesome.api.utils.get_default_warehouse",
-						args: { company: this.pos_profile.company },
-					});
-					if (res.message) {
-						this.pos_profile.warehouse = res.message;
-					}
-				} catch (e) {
-					console.error("Failed to fetch default warehouse", e);
-				}
+				console.warn("POS Profile warehouse is missing; variant stock will not be warehouse-scoped.");
 			}
 			try {
 				const res = await frappe.call({

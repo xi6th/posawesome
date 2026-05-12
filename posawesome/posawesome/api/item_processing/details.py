@@ -4,8 +4,6 @@ from erpnext.stock.doctype.batch.batch import get_batch_qty
 from posawesome.posawesome.api.item_fetchers import (
     ItemDetailAggregator,
     get_batches,
-    get_warehouse_bin_qty,
-    _select_stock_warehouse,
 )
 from posawesome.posawesome.api.item_processing.stock import get_stock_availability
 from posawesome.posawesome.api.utils import _ensure_pos_profile, log_perf_event
@@ -164,14 +162,6 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
     )
     selected_warehouse = warehouse
     if item.get("is_stock_item"):
-        warehouse_qty_rows = get_warehouse_bin_qty(company, (item_code,)) if company else []
-        warehouse_qty_map = {
-            row.get("warehouse"): float(row.get("actual_qty") or 0)
-            for row in warehouse_qty_rows
-            if row.get("warehouse")
-        }
-        selected_warehouse, _ = _select_stock_warehouse(warehouse, warehouse_qty_map)
-
         if item.get("has_batch_no"):
             if selected_warehouse and item.get("batch_no"):
                 res["actual_qty"] = get_batch_qty(item.get("batch_no"), selected_warehouse) or 0
@@ -186,6 +176,8 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
                 res["actual_qty"] = non_expired_batch_qty
         elif selected_warehouse:
             res["actual_qty"] = get_stock_availability(item_code, selected_warehouse)
+        else:
+            res["actual_qty"] = 0
         res["warehouse"] = selected_warehouse or warehouse
     res["max_discount"] = max_discount
     res["batch_no_data"] = batch_no_data

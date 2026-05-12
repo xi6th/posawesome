@@ -30,6 +30,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { useToastStore } from "./toastStore";
 import { useUIStore } from "./uiStore";
+import { useItemsStore } from "./itemsStore";
 import { dispatchRealtimeStockPayload } from "../utils/realtimeStock";
 
 type InvoiceProcessingPayload = {
@@ -59,6 +60,7 @@ type PostSubmitPaymentState = {
 export const useSocketStore = defineStore("socket", () => {
   const toastStore = useToastStore();
   const uiStore = useUIStore();
+  const itemsStore = useItemsStore();
   const processedInvoices = ref<Record<string, InvoiceProcessingState>>({});
   const postSubmitPayments = ref<Record<string, PostSubmitPaymentState>>({});
   const invoiceWaiters = new Map<string, Array<{ resolve: (value?: any) => void; reject: (reason?: any) => void }>>();
@@ -263,9 +265,12 @@ export const useSocketStore = defineStore("socket", () => {
     });
 
     frappe.realtime.on("posa_stock_changed", (data: unknown) => {
-      dispatchRealtimeStockPayload(data, {
+      const payload = dispatchRealtimeStockPayload(data, {
         setLastStockAdjustment: uiStore.setLastStockAdjustment,
       });
+      if (payload) {
+        void itemsStore.refreshModifiedItems();
+      }
     });
   }
 
