@@ -5,7 +5,7 @@
 from __future__ import unicode_literals
 
 import frappe
-from frappe.utils import cstr, add_to_date, get_datetime
+from frappe.utils import cstr, add_to_date, get_datetime, flt
 from typing import List, Dict, Any
 import time
 import os

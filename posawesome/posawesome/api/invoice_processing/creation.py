@@ -4,6 +4,7 @@ from frappe.exceptions import TimestampMismatchError
 from frappe.utils import (
     cint,
     flt,
+    cstr,
     getdate,
     nowdate,
 )

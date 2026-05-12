@@ -323,6 +323,9 @@ def validate_shift(doc):
         shift = frappe.get_cached_doc("POS Opening Shift", doc.posa_pos_opening_shift)
         if shift.status != "Open":
             frappe.throw(_("POS Shift {0} is not open").format(shift.name))
+        # check if shift belongs to the current user
+        if shift.user != frappe.session.user:
+            frappe.throw(_("POS Opening Shift {0} does not belong to the current user").format(shift.name))
         # check if shift is for the same profile
         if shift.pos_profile != doc.pos_profile:
             frappe.throw(_("POS Opening Shift {0} is not for the same POS Profile").format(shift.name))

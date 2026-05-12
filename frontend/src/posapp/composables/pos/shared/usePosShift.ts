@@ -117,10 +117,6 @@ export function usePosShift(openDialog?: () => void) {
 			getOpeningStorage(),
 			frappe?.session?.user,
 		);
-		if (cachedOpening) {
-			applyRegisterData(cachedOpening);
-			console.info("LoadPosProfile (bootstrapped from cache)");
-		}
 		return frappe
 			.call("posawesome.posawesome.api.shifts.check_opening_shift", {
 				user: frappe.session.user,
@@ -159,7 +155,8 @@ export function usePosShift(openDialog?: () => void) {
 			})
 			.catch((err: unknown) => {
 				console.error("Error checking opening entry", err);
-				const data = cachedOpening ||
+				const data =
+					cachedOpening ||
 					getValidCachedOpeningForCurrentUser(
 						getOpeningStorage(),
 						frappe?.session?.user,
