@@ -385,6 +385,12 @@ const couponsCount = computed(() => uiStore.couponsCount || 0);
 const active_price_list = computed(
 	() => itemsIntegration.active_price_list.value || pos_profile.value?.selling_price_list,
 );
+const hideUnavailableItems = computed(() =>
+	parseBooleanSetting(
+		pos_profile.value?.posa_display_items_in_stock ??
+			pos_profile.value?.hide_unavailable_items,
+	),
+);
 const isPosSupervisor = computed(() =>
 	parseBooleanSetting(currentCashier.value?.is_supervisor),
 );
@@ -415,9 +421,14 @@ const displayedItems = computed(() => {
 	const baseItems = Array.isArray(filteredItems.value) ? filteredItems.value : [];
 	const rawTerm = first_search.value;
 	const term = (typeof rawTerm === "string" ? rawTerm : "").trim().toLowerCase();
-	const stockVisibleItems = baseItems.filter(
-		(item: any) => Number(item?.actual_qty || 0) > 0,
-	);
+	const stockVisibleItems = hideUnavailableItems.value
+		? baseItems.filter((item: any) => {
+				return (
+					!parseBooleanSetting(item?.is_stock_item) ||
+					Number(item?.actual_qty || 0) > 0
+				);
+			})
+		: baseItems;
 	return filterAndPaginate(stockVisibleItems, {
 		searchTerm: term,
 		hideZeroRate: hide_zero_rate_items.value,

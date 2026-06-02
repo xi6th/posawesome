@@ -323,7 +323,16 @@ def _shape_item_row(
     if plan.posa_show_template_items and item.get("variant_of"):
         item_attributes = (variant_attributes_map or {}).get(item.get("name"), [])
 
-    if (not detail.get("actual_qty") or detail.get("actual_qty") < 0) and not item.get("has_variants"):
+    actual_qty = detail.get("actual_qty")
+    should_hide_unavailable = bool(plan.posa_display_items_in_stock)
+    is_stock_item = bool(item.get("is_stock_item"))
+
+    if (
+        should_hide_unavailable
+        and is_stock_item
+        and (actual_qty is None or actual_qty <= 0)
+        and not item.get("has_variants")
+    ):
         return None
 
     row: Dict[str, Any] = {}
