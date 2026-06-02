@@ -189,6 +189,12 @@ export const useItemsStore = defineStore("items", () => {
 		return Boolean(value);
 	};
 
+	const shouldHideUnavailableItems = () =>
+		normalizeBooleanSetting(
+			posProfile.value?.posa_display_items_in_stock ??
+				posProfile.value?.hide_unavailable_items,
+		);
+
 	const limitSearchEnabled = computed(() => {
 		const rawValue =
 			posProfile.value?.posa_use_limit_search ??
@@ -231,7 +237,8 @@ export const useItemsStore = defineStore("items", () => {
 	const getCacheScope = () => {
 		const profileName = posProfile.value?.name || "no_profile";
 		const warehouse = posProfile.value?.warehouse || "no_warehouse";
-		return `${profileName}_${warehouse}`;
+		const stockVisibility = shouldHideUnavailableItems() ? "hide" : "show";
+		return `${profileName}_${warehouse}_${stockVisibility}`;
 	};
 
 	const getStorageScope = () => getCacheScope();
