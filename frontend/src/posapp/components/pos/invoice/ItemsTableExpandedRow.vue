@@ -92,7 +92,7 @@
 									calcPrices(item, $event.target.value, $event),
 								]"
 								:disabled="
-									!pos_profile.posa_allow_user_to_edit_rate ||
+									!pos_profile.allow_rate_change ||
 									!!item.posa_is_replace
 								"
 								prepend-inner-icon="mdi-currency-usd"
@@ -113,7 +113,7 @@
 									calcPrices(item, $event.target.value, $event),
 								]"
 								:disabled="
-									!pos_profile.posa_allow_user_to_edit_item_discount ||
+									!pos_profile.allow_discount_change ||
 									!!item.posa_is_replace ||
 									!!item.posa_offer_applied
 								"
@@ -135,7 +135,7 @@
 									calcPrices(item, $event.target.value, $event),
 								]"
 								:disabled="
-									!pos_profile.posa_allow_user_to_edit_item_discount ||
+									!pos_profile.allow_discount_change ||
 									!!item.posa_is_replace ||
 									!!item.posa_offer_applied
 								"

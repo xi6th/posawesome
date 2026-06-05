@@ -238,22 +238,46 @@ export function usePaymentMethods(options: PaymentMethodsOptions) {
 	};
 
 	// Set full amount for a payment mode
+	// If other payments already have amounts, set the remaining amount to this payment (supports split payments)
 	const set_full_amount = (payment: any, isReturn = false) => {
 		const doc = unref(invoiceDoc);
 		const invoiceAmount = getInvoiceSettlementAmount();
-		// Reset other payments
-		doc.payments.forEach((p: any) => {
-			if (p.mode_of_payment !== payment.mode_of_payment) {
-				p.amount = 0;
-				if (p.base_amount !== undefined) p.base_amount = 0;
-			}
-		});
 
-		payment.amount = invoiceAmount;
-		if (payment.base_amount !== undefined) {
-			payment.base_amount = isReturn
-				? -Math.abs(invoiceAmount)
-				: invoiceAmount;
+		// Check if any other payment already has an amount
+		const hasExistingPayments = doc.payments.some(
+			(p: any) => p.mode_of_payment !== payment.mode_of_payment && flt(p.amount) > 0,
+		);
+
+		if (hasExistingPayments) {
+			// Split payment mode: set the remaining amount to this payment
+			const currentPaid = doc.payments.reduce(
+				(acc: number, p: any) => acc + flt(p.amount),
+				0,
+			);
+			const currentPaymentAmount = flt(payment.amount);
+			const otherPayments = currentPaid - currentPaymentAmount;
+			let remainingAmount = invoiceAmount - otherPayments;
+			remainingAmount = flt(remainingAmount);
+
+			payment.amount = remainingAmount;
+			if (payment.base_amount !== undefined) {
+				payment.base_amount = isReturn ? -Math.abs(remainingAmount) : remainingAmount;
+			}
+		} else {
+			// Single payment mode: reset other payments and set full amount
+			doc.payments.forEach((p: any) => {
+				if (p.mode_of_payment !== payment.mode_of_payment) {
+					p.amount = 0;
+					if (p.base_amount !== undefined) p.base_amount = 0;
+				}
+			});
+
+			payment.amount = invoiceAmount;
+			if (payment.base_amount !== undefined) {
+				payment.base_amount = isReturn
+					? -Math.abs(invoiceAmount)
+					: invoiceAmount;
+			}
 		}
 	};
 

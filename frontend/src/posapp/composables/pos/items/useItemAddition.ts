@@ -376,32 +376,8 @@ export function useItemAddition() {
 				return;
 			}
 
-			if (
-				!context.isReturnInvoice &&
-				!deferStockValidationToPayment &&
-				blockSale &&
-				!allowNegativeStock
-			) {
-				const existingItem =
-					findMergeTarget(context, item, false)?.item ||
-					context.items.find(
-						(i) =>
-							i.item_code === item.item_code &&
-							i.uom === item.uom,
-					);
-				const currentQty = existingItem ? existingItem.qty : 0;
-				const requestedQty = item.qty || 1;
-				const maxQty =
-					item._base_actual_qty / (item.conversion_factor || 1);
-
-				if (currentQty + requestedQty > maxQty) {
-					toastStore.show({
-						title: __("Quantity exceeds available stock"),
-						color: "warning",
-					});
-					return;
-				}
-			}
+			// Stock validation is handled by useCartValidation.validateCartItem
+			// which is called before addItem in the add_item flow
 
 			if (!item.uom) {
 				item.uom = item.stock_uom;

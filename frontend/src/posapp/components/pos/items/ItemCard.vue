@@ -6,7 +6,7 @@
 		@dragstart="onDragStart"
 		@dragend="onDragEnd"
 	>
-		<div class="card-item-image-container">
+		<div v-if="!posProfile.hide_images" class="card-item-image-container">
 			<v-img
 				:src="item.image || placeholderImage"
 				class="card-item-image"

@@ -514,13 +514,13 @@ const disableUomEdit = computed(
 
 const disableRateEdit = computed(
 	() =>
-		!props.posProfile.posa_allow_user_to_edit_rate ||
+				!props.posProfile.allow_rate_change ||
 		!!props.item.posa_is_replace,
 );
 
 const disableDiscountEdit = computed(
 	() =>
-		!props.posProfile.posa_allow_user_to_edit_item_discount ||
+				!props.posProfile.allow_discount_change ||
 		!!props.item.posa_is_replace ||
 		!!props.item.posa_offer_applied,
 );

@@ -167,7 +167,7 @@ export function get_invoice_doc(context: any) {
 		doc.doctype = "Sales Invoice";
 	}
 	doc.is_pos = 1;
-	doc.ignore_pricing_rule = 0;
+	doc.ignore_pricing_rule = context.pos_profile?.ignore_pricing_rule ? 1 : 0;
 	doc.company = doc.company || context.pos_profile?.company || null;
 	doc.pos_profile = doc.pos_profile || context.pos_profile?.name || null;
 	doc.posa_show_custom_name_marker_on_print =
@@ -440,7 +440,7 @@ export function get_invoice_doc(context: any) {
 	}
 
 	// Add flags to ensure proper rate handling
-	doc.ignore_pricing_rule = 0;
+	doc.ignore_pricing_rule = context.pos_profile?.ignore_pricing_rule ? 1 : 0;
 
 	// Preserve the real price list currency
 	doc.price_list_currency = context.price_list_currency;

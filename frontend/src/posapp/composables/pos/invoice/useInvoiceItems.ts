@@ -12,7 +12,7 @@
  * **Quantity editing (`setFormatedQty`)**
  * The central quantity setter enforces several layered rules in order:
  * 1. Clamps to `_offer_constraints.max_qty` for offer lines.
- * 2. Enforces stock ceiling when `posa_validate_stock` is enabled, with a
+ * 2. Enforces stock ceiling when `validate_stock_on_save` is enabled, with a
  *    "block vs. warn" branch controlled by `posa_block_sale_beyond_available_qty`
  *    and `allow_negative_stock`.
  * 3. Forces negative sign on return invoices.
@@ -209,7 +209,7 @@ export function useInvoiceItems(invoiceType: Ref<string>) {
 	const shouldEnforceStockLimits = (item: any) => {
 		if (
 			pos_profile.value &&
-			!parseBooleanSetting(pos_profile.value.posa_validate_stock)
+			!parseBooleanSetting(pos_profile.value.validate_stock_on_save)
 		) {
 			return false;
 		}

@@ -48,9 +48,12 @@ export function useCartValidation() {
 				return true;
 			}
 
+			const isStockItem = parseBooleanSetting(item?.is_stock_item);
+
 			if (
+				isStockItem &&
 				item.actual_qty === 0 &&
-				posProfile?.posa_display_items_in_stock &&
+				posProfile?.hide_unavailable_items &&
 				!isReturnInvoice
 			) {
 				toastStore.show({
@@ -59,8 +62,6 @@ export function useCartValidation() {
 				});
 				return false;
 			}
-
-			const isStockItem = parseBooleanSetting(item?.is_stock_item);
 
 			if (isStockItem && !isReturnInvoice) {
 				const allowNegativeStock =

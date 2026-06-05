@@ -244,13 +244,17 @@ export function useItemSearch() {
 						item._search_index!.includes(t),
 					);
 				} else {
-					// Fallback
+					// Fallback - include more fields for better matching
 					const rawIndex = (
 						(item.item_code || "") +
 						" " +
 						(item.item_name || "") +
 						" " +
-						(item.barcode || "")
+						(item.barcode || "") +
+						" " +
+						(item.description || "") +
+						" " +
+						(item.brand || "")
 					).toLowerCase();
 					matches = activeTerms.every((t) => rawIndex.includes(t));
 				}

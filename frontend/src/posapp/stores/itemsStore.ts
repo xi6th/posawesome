@@ -191,8 +191,7 @@ export const useItemsStore = defineStore("items", () => {
 
 	const shouldHideUnavailableItems = () =>
 		normalizeBooleanSetting(
-			posProfile.value?.posa_display_items_in_stock ??
-				posProfile.value?.hide_unavailable_items,
+			posProfile.value?.hide_unavailable_items,
 		);
 
 	const limitSearchEnabled = computed(() => {

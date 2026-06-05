@@ -387,7 +387,6 @@ const active_price_list = computed(
 );
 const hideUnavailableItems = computed(() =>
 	parseBooleanSetting(
-		pos_profile.value?.posa_display_items_in_stock ??
 			pos_profile.value?.hide_unavailable_items,
 	),
 );
@@ -421,12 +420,16 @@ const displayedItems = computed(() => {
 	const baseItems = Array.isArray(filteredItems.value) ? filteredItems.value : [];
 	const rawTerm = first_search.value;
 	const term = (typeof rawTerm === "string" ? rawTerm : "").trim().toLowerCase();
+	// Filter by stock visibility - non-stock items should always be visible
 	const stockVisibleItems = hideUnavailableItems.value
 		? baseItems.filter((item: any) => {
-				return (
-					!parseBooleanSetting(item?.is_stock_item) ||
-					Number(item?.actual_qty || 0) > 0
-				);
+				// Explicitly check if item is a non-stock item (is_stock_item === 0 or false)
+				const isNonStockItem = item?.is_stock_item === 0 || item?.is_stock_item === false;
+				if (isNonStockItem) {
+					return true; // Always show non-stock items
+				}
+				// For stock items, check if they have available quantity
+				return Number(item?.actual_qty || 0) > 0;
 			})
 		: baseItems;
 	return filterAndPaginate(stockVisibleItems, {
