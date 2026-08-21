@@ -258,3 +258,89 @@ def get_item_groups(pos_profile: str) -> list[str]:
     )
 
     return expand_item_groups(groups)
+
+
+@frappe.whitelist()
+def check_open_shift(pos_profile=None, company=None):
+    """Check if the current user has an open POS shift.
+
+    Returns a dict with:
+    - has_open_shift: bool
+    - shift_name: str or None
+    - message: str (error/prompt message if no shift)
+    - can_create: bool (whether user can create a new shift)
+    """
+    from frappe import _
+
+    user = frappe.session.user
+    company = company or frappe.defaults.get_default("company")
+
+    if not user:
+        return {
+            "has_open_shift": False,
+            "shift_name": None,
+            "message": _("User not authenticated"),
+            "can_create": False,
+        }
+
+    # Check for existing open shift
+    filters = {
+        "user": user,
+        "status": "Open",
+        "docstatus": 1,
+    }
+
+    if pos_profile:
+        filters["pos_profile"] = pos_profile
+
+    if company:
+        filters["company"] = company
+
+    open_shift = frappe.db.get_value(
+        "POS Opening Shift",
+        filters=filters,
+        fieldname="name",
+    )
+
+    if open_shift:
+        return {
+            "has_open_shift": True,
+            "shift_name": open_shift,
+            "message": _("You have an open shift"),
+            "can_create": False,
+        }
+
+    # Check if user can create a new shift
+    can_create = frappe.has_permission("POS Opening Shift", "create", user=user)
+
+    return {
+        "has_open_shift": False,
+        "shift_name": None,
+        "message": _("You don't have an open shift. Please create an opening shift before using the POS."),
+        "can_create": can_create,
+    }
+
+
+@frappe.whitelist()
+def get_user_open_shifts():
+    """Get all open shifts for the current user across all POS profiles.
+
+    Returns a list of open shifts with key details.
+    """
+    user = frappe.session.user
+
+    if not user:
+        return []
+
+    shifts = frappe.get_all(
+        "POS Opening Shift",
+        filters={
+            "user": user,
+            "status": "Open",
+            "docstatus": 1,
+        },
+        fields=["name", "pos_profile", "company", "period_start_date", "posting_date"],
+        order_by="period_start_date desc",
+    )
+
+    return shifts

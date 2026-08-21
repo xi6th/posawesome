@@ -81,30 +81,59 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 
 @frappe.whitelist()
-def check_opening_shift(user=None):
+def check_opening_shift(user=None, pos_profile=None, enforce=False):
+    """Check if the current user has an open POS shift.
+
+    Args:
+        user: Optional user to check for (defaults to session user)
+        pos_profile: Optional POS profile to filter by
+        enforce: If True, throws an error when no shift is open
+
+    Returns:
+        If enforce=False: Returns dict with shift data or empty dict if none
+        If enforce=True: Returns shift data dict or throws error
+    """
     session_user = frappe.session.user
     if user and user != session_user:
         frappe.log_error(
             f"Rejected opening shift lookup for user '{user}' from session '{session_user}'",
             "POS Awesome Shift Lookup Security",
         )
+
+    filters = {
+        "user": session_user,
+        "pos_closing_shift": ["is", "not set"],
+        "docstatus": 1,
+        "status": "Open",
+    }
+
+    if pos_profile:
+        filters["pos_profile"] = pos_profile
+
     open_vouchers = frappe.db.get_all(
         "POS Opening Shift",
-        filters={
-            "user": session_user,
-            "pos_closing_shift": ["is", "not set"],
-            "docstatus": 1,
-            "status": "Open",
-        },
+        filters=filters,
         fields=["name", "pos_profile"],
         order_by="period_start_date desc",
     )
-    data = ""
+
     if len(open_vouchers) > 0:
         data = {}
         data["pos_opening_shift"] = frappe.get_doc("POS Opening Shift", open_vouchers[0]["name"])
         update_opening_shift_data(data, open_vouchers[0]["pos_profile"])
-    return data
+        return data
+
+    # No open shift found
+    if enforce:
+        # Check if user can create a shift
+        can_create = frappe.has_permission("POS Opening Shift", "create", user=session_user)
+        frappe.throw(
+            _(
+                "You don't have an open POS shift. Please create an opening shift before using the POS."
+            ),
+            title=_("No Open Shift") if can_create else _("Contact Administrator"),
+        )
+    return {}
 
 
 def update_opening_shift_data(data, pos_profile):
@@ -115,3 +144,23 @@ def update_opening_shift_data(data, pos_profile):
     allow_negative_stock = cint(frappe.db.get_single_value("Stock Settings", "allow_negative_stock") or 0)
     data["stock_settings"] = {}
     data["stock_settings"].update({"allow_negative_stock": bool(allow_negative_stock)})
+
+
+@frappe.whitelist()
+def validate_pos_access(pos_profile=None):
+    """Validate that the user has an open shift before accessing POS.
+
+    This function should be called when the POS page loads to ensure
+    the user has an open shift. If not, it throws an error prompting
+    the user to create an opening shift.
+
+    Args:
+        pos_profile: Optional POS profile to check against
+
+    Returns:
+        Dict with shift information if user has open shift
+
+    Raises:
+        frappe.ValidationError: If no open shift exists
+    """
+    return check_opening_shift(user=None, pos_profile=pos_profile, enforce=True)

@@ -66,6 +66,7 @@ from .shifts import (
     check_opening_shift,
     create_opening_voucher,
     get_opening_dialog_data,
+    validate_pos_access,
 )
 from .utilities import (
     get_app_branch,
