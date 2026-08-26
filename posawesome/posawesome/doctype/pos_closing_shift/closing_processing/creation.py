@@ -9,10 +9,12 @@ from posawesome.posawesome.doctype.pos_closing_shift.closing_processing.data imp
 from posawesome.posawesome.doctype.pos_closing_shift.closing_processing.invoices import (
     submit_printed_invoices,
 )
+from posawesome.posawesome.api.shift_guard import enforce_own_active_shift
 
 @frappe.whitelist()
 def make_closing_shift_from_opening(opening_shift):
     opening_shift = json.loads(opening_shift)
+    enforce_own_active_shift(opening_shift.get("name"))
     use_pos_invoice = frappe.db.get_value(
         "POS Profile",
         opening_shift.get("pos_profile"),
@@ -186,6 +188,7 @@ def make_closing_shift_from_opening(opening_shift):
 def submit_closing_shift(closing_shift):
     closing_shift = json.loads(closing_shift)
     closing_shift_doc = frappe.get_doc(closing_shift)
+    enforce_own_active_shift(closing_shift_doc.get("pos_opening_shift"))
     closing_shift_doc.flags.ignore_permissions = True
     closing_shift_doc.save()
     closing_shift_doc.submit()

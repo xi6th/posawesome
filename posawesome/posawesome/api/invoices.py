@@ -43,6 +43,38 @@ from posawesome.posawesome.api.invoice_processing.data import (
     get_last_invoice_rates
 )
 from posawesome.posawesome.api.utils import log_perf_event
+from posawesome.posawesome.api.shift_guard import enforce_own_active_shift, is_manager
+from frappe import _
+
+
+def _assert_invoice_access(doctype, invoice):
+    """Owner-or-shift-owner-or-manager rule for reading/deleting invoices."""
+    doc = invoice
+    if not getattr(doc, "name", None):
+        doc = frappe.db.get_value(
+            doctype,
+            invoice,
+            ["name", "owner", "posa_pos_opening_shift"],
+            as_dict=1,
+        )
+    if not doc:
+        return  # nonexistent names surface later via native loaders
+
+    if doc.owner == frappe.session.user or is_manager():
+        return
+
+    shift_ref = (
+        doc.get("posa_pos_opening_shift")
+        if hasattr(doc, "get")
+        else getattr(doc, "posa_pos_opening_shift", None)
+    )
+    if shift_ref:
+        # Throws (with security logging) when the shift isn't the caller's live one
+        enforce_own_active_shift(shift_ref)
+        return
+
+    frappe.throw(_("Not permitted to access {0} {1}").format(doctype, doc.name))
+
 
 @frappe.whitelist()
 def get_draft_invoices(
@@ -62,7 +94,7 @@ def get_draft_invoices(
     if limit_page_length < 0:
         limit_page_length = 0
 
-    supervisor_scope = int(is_supervisor or 0)
+    supervisor_scope = int(is_supervisor or 0) and bool(is_manager())
     filters = {
         "docstatus": 0,
     }
@@ -72,8 +104,12 @@ def get_draft_invoices(
             filters["pos_profile"] = pos_profile
         if cashier:
             filters["owner"] = cashier
-    else:
+    elif pos_opening_shift:
+        enforce_own_active_shift(pos_opening_shift)
         filters["posa_pos_opening_shift"] = pos_opening_shift
+        filters["owner"] = frappe.session.user
+    else:
+        frappe.throw(_("A POS Opening Shift reference is required."))
     if frappe.db.has_column(doctype, "posa_is_printed"):
         filters["posa_is_printed"] = 0
 
@@ -110,6 +146,7 @@ def get_draft_invoices(
 def get_draft_invoice_doc(invoice_name, doctype="Sales Invoice"):
     started_at = time.perf_counter()
     doc = frappe.get_cached_doc(doctype, invoice_name)
+    _assert_invoice_access(doctype, doc)
     log_perf_event(
         "get_draft_invoice_doc",
         started_at,
@@ -121,19 +158,21 @@ def get_draft_invoice_doc(invoice_name, doctype="Sales Invoice"):
 
 @frappe.whitelist()
 def delete_invoice(invoice):
-    from frappe import _
     doctype = "Sales Invoice"
     if frappe.db.exists("POS Invoice", invoice):
         doctype = "POS Invoice"
     elif not frappe.db.exists("Sales Invoice", invoice):
         frappe.throw(_("Invoice {0} does not exist").format(invoice))
 
+    _assert_invoice_access(doctype, invoice)
+
     if frappe.db.has_column(doctype, "posa_is_printed") and frappe.get_value(
         doctype, invoice, "posa_is_printed"
     ):
         frappe.throw(_("This invoice {0} cannot be deleted").format(invoice))
 
-    frappe.delete_doc(doctype, invoice, force=1)
+    force = 1 if is_manager() else 0
+    frappe.delete_doc(doctype, invoice, force=force)
     return _("Invoice {0} Deleted").format(invoice)
 
 
@@ -184,7 +223,9 @@ def delete_sales_invoice(sales_invoice):
         frappe.throw("sales_invoice is required")
 
     if frappe.db.exists("Sales Invoice", sales_invoice):
-        frappe.delete_doc("Sales Invoice", sales_invoice, force=1)
+        _assert_invoice_access("Sales Invoice", sales_invoice)
+        force = 1 if is_manager() else 0
+        frappe.delete_doc("Sales Invoice", sales_invoice, force=force)
     return True
 
 

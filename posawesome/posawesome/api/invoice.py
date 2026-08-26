@@ -13,6 +13,7 @@ from posawesome.posawesome.doctype.delivery_charges.delivery_charges import (
     get_applicable_delivery_charges,
 )
 from posawesome.posawesome.doctype.pos_coupon.pos_coupon import update_coupon_code_count
+from posawesome.posawesome.api.shift_guard import enforce_own_active_shift
 
 
 def validate(doc, method):
@@ -318,17 +319,21 @@ def apply_tax_inclusive(doc):
 
 
 def validate_shift(doc):
-    if doc.posa_pos_opening_shift and doc.pos_profile and doc.is_pos:
-        # check if shift is open
-        shift = frappe.get_cached_doc("POS Opening Shift", doc.posa_pos_opening_shift)
-        if shift.status != "Open":
-            frappe.throw(_("POS Shift {0} is not open").format(shift.name))
-        # check if shift belongs to the current user
-        if shift.user != frappe.session.user:
-            frappe.throw(_("POS Opening Shift {0} does not belong to the current user").format(shift.name))
-        # check if shift is for the same profile
-        if shift.pos_profile != doc.pos_profile:
-            frappe.throw(_("POS Opening Shift {0} is not for the same POS Profile").format(shift.name))
-        # check if shift is for the same company
-        if shift.company != doc.company:
-            frappe.throw(_("POS Opening Shift {0} is not for the same company").format(shift.name))
+    if not getattr(doc, "is_pos", 0):
+        return
+
+    shift_name = getattr(doc, "posa_pos_opening_shift", None)
+    if not shift_name:
+        # Blank/omitted references can no longer skip validation
+        frappe.throw(
+            _("A valid POS Opening Shift reference is required for this POS transaction.")
+        )
+
+    # Active-status + ownership + till-membership + freshness, centrally enforced
+    shift = enforce_own_active_shift(shift_name)
+
+    if doc.pos_profile != shift.pos_profile:
+        frappe.throw(_("POS Opening Shift {0} is not for the same POS Profile").format(shift.name))
+    # check if shift is for the same company
+    if doc.company != shift.company:
+        frappe.throw(_("POS Opening Shift {0} is not for the same company").format(shift.name))

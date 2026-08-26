@@ -8,6 +8,7 @@ import frappe
 from frappe.utils import cint, nowdate
 from frappe import _
 from .utilities import get_version
+from .shift_guard import enforce_own_active_shift, get_active_own_shift_filters
 
 
 @frappe.whitelist()
@@ -60,6 +61,8 @@ def get_opening_dialog_data():
 def create_opening_voucher(pos_profile, company, balance_details):
     balance_details = json.loads(balance_details)
 
+    _validate_opening_eligibility(pos_profile)
+
     new_pos_opening = frappe.get_doc(
         {
             "doctype": "POS Opening Shift",
@@ -100,12 +103,7 @@ def check_opening_shift(user=None, pos_profile=None, enforce=False):
             "POS Awesome Shift Lookup Security",
         )
 
-    filters = {
-        "user": session_user,
-        "pos_closing_shift": ["is", "not set"],
-        "docstatus": 1,
-        "status": "Open",
-    }
+    filters = get_active_own_shift_filters(user=session_user)
 
     if pos_profile:
         filters["pos_profile"] = pos_profile
@@ -164,3 +162,29 @@ def validate_pos_access(pos_profile=None):
         frappe.ValidationError: If no open shift exists
     """
     return check_opening_shift(user=None, pos_profile=pos_profile, enforce=True)
+
+
+def _validate_opening_eligibility(pos_profile):
+    """A user must be assigned to the till and hold no other open shift."""
+    session_user = frappe.session.user
+
+    if not frappe.db.exists(
+        "POS Profile User",
+        {"parent": pos_profile, "parenttype": "POS Profile", "user": session_user},
+    ):
+        frappe.throw(_("You are not assigned to POS Profile {0}.").format(pos_profile))
+
+    existing = frappe.db.get_all(
+        "POS Opening Shift",
+        filters={
+            "user": session_user,
+            "status": "Open",
+            "docstatus": 1,
+            "pos_closing_shift": ["is", "not set"],
+        },
+        limit=1,
+    )
+    if existing:
+        frappe.throw(
+            _("You already have an open POS shift. Close it before opening another.")
+        )
