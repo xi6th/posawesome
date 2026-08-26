@@ -199,7 +199,7 @@
    "type": "Link"
   }
  ],
- "modified": "2023-06-07 17:35:14.887611",
+ "modified": "2026-08-26 13:49:19.556615",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "POS Awesome",
@@ -209,7 +209,7 @@
  "public": 1,
  "quick_lists": [],
  "roles": [],
- "sequence_id": 1.0,
+ "sequence_id": 2.0,
  "shortcuts": [
   {
    "color": "Grey",
@@ -219,6 +219,5 @@
    "type": "Page"
   }
  ],
- "title": "POS Awesome",
- "type": "Workspace"
+ "title": "POS Awesome"
 }
