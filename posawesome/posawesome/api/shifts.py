@@ -176,12 +176,7 @@ def _validate_opening_eligibility(pos_profile):
 
     existing = frappe.db.get_all(
         "POS Opening Shift",
-        filters={
-            "user": session_user,
-            "status": "Open",
-            "docstatus": 1,
-            "pos_closing_shift": ["is", "not set"],
-        },
+        filters=get_active_own_shift_filters(user=session_user),
         limit=1,
     )
     if existing:

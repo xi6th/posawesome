@@ -19,7 +19,13 @@ def _install_stubs():
     frappe_module.db = types.SimpleNamespace(
         get_all=lambda *args, **kwargs: [],
         get_single_value=lambda *args, **kwargs: 0,
+        exists=lambda *args, **kwargs: True,
     )
+
+    def _throw(msg=None, *args, **kwargs):
+        raise Exception(msg or "frappe.throw")
+
+    frappe_module.throw = _throw
     sys.modules["frappe"] = frappe_module
 
     frappe_utils = types.ModuleType("frappe.utils")
@@ -105,6 +111,52 @@ class TestOpeningShiftLookup(unittest.TestCase):
         self.assertEqual(filters["docstatus"], 1)
         self.assertEqual(filters["pos_closing_shift"], ["is", "not set"])
         self.assertEqual(filters["period_start_date"], [">=", "STUB_CUTOFF"])
+
+
+class TestOpeningEligibility(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _install_stubs()
+        cls.shifts = _load_module()
+
+    def test_unassigned_user_rejected(self):
+        self.shifts.frappe.db.exists = lambda *a, **kw: False
+        try:
+            self.shifts._validate_opening_eligibility("Till X")
+        except Exception as e:
+            self.assertIn("not assigned", str(e))
+        else:
+            self.fail("expected rejection for unassigned user")
+        finally:
+            self.shifts.frappe.db.exists = lambda *a, **kw: True
+
+    def test_existing_fresh_shift_blocks_creation(self):
+        self.shifts.frappe.db.get_all = lambda *a, **kw: [{"name": "POSA-OS-1"}]
+        try:
+            self.shifts._validate_opening_eligibility("Till X")
+        except Exception as e:
+            self.assertIn("already have an open POS shift", str(e))
+        else:
+            self.fail("expected rejection when a fresh open shift exists")
+
+    def test_duplicate_check_uses_freshness_aware_filters(self):
+        captured = {}
+
+        def fake_get_all(doctype, **kwargs):
+            captured["kwargs"] = kwargs
+            return []
+
+        self.shifts.frappe.db.get_all = fake_get_all
+        self.shifts._validate_opening_eligibility("Till X")
+
+        filters = captured["kwargs"]["filters"]
+        self.assertEqual(filters["user"], "cashier@example.com")
+        self.assertEqual(filters["status"], "Open")
+        self.assertEqual(filters["pos_closing_shift"], ["is", "not set"])
+        self.assertEqual(
+            filters["period_start_date"], [">=", "STUB_CUTOFF"],
+            "stale shifts must not count as blockers",
+        )
 
 
 if __name__ == "__main__":
